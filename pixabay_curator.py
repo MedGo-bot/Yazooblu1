@@ -1,5 +1,5 @@
 """
-Pixabay Media Curator for YazooBlu Editorial Engine
+Pixabay Media Curator for YazooBlu Social Media Content Creator Engine
 Filters out commercial gloss, clip art, and over-downloaded viral stock.
 Anchors queries with editorial film texture.
 """
