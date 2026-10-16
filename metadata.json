@@ -1,0 +1,6 @@
+{
+  "name": "YazooBlu",
+  "description": "Multi-agent production architecture and autonomous editorial engine for 7 sovereign brand personas with strict voice constraints, social card generator, voiceover scripting, and approval queue.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
