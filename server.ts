@@ -8,7 +8,8 @@ import { BRANDS, BrandKey, Channel, ProductionPackage, HOOK_LIBRARY, getPlatform
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+// Dynamic port binding for cloud platforms like Cloud Run or Render with local fallback
+const PORT = process.env.PORT || 3000;
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -31,6 +32,25 @@ if (apiKey && apiKey !== 'MY_GEMINI_API_KEY') {
     });
   } catch (err) {
     console.warn('Failed to initialize GoogleGenAI client:', err);
+  }
+}
+
+/**
+ * Helper function to attempt generation with gemini-3.8-flash
+ * and automatically fail over to gemini-3.1-flash-lite on 503 capacity spikes.
+ */
+async function generateWithFallback(client: GoogleGenAI, options: { contents: any; config?: any }) {
+  try {
+    return await client.models.generateContent({
+      model: 'gemini-3.8-flash',
+      ...options,
+    });
+  } catch (primaryErr: any) {
+    console.warn(`Primary model gemini-3.8-flash error (${primaryErr.message}). Failing over to gemini-3.1-flash-lite...`);
+    return await client.models.generateContent({
+      model: 'gemini-3.1-flash-lite',
+      ...options,
+    });
   }
 }
 
@@ -83,19 +103,14 @@ function generateFallbackPackage(
   let postBody = '';
   const columnPrefix = magazineColumn ? `[${magazineColumn.toUpperCase()}]\n\n` : '';
   if (channel === 'Bluesky') {
-    // Exactly under 300 characters
     postBody = `When evaluating ${topic.toLowerCase()}, standard assumptions collapse. True authority in our domain requires ${brand.lexicon[0].toLowerCase()} over transient sentiment. Rigorous standards dictate real-world outcomes.`.slice(0, 290);
   } else if (channel === 'Threads') {
-    // Exactly under 300 characters
     postBody = `Unpopular truth: The conversation around ${topic.toLowerCase()} is treating a structural crisis with cosmetic rhetoric. If you ignore ${brand.lexicon[0].toLowerCase()}, failure is guaranteed. Agree or disagree?`.slice(0, 290);
   } else if (channel === 'Pinterest') {
-    // Under 800 characters
     postBody = `THE EDITORIAL BLUEPRINT: ${brand.name.toUpperCase()}\n\nTopic: ${topic}\n\nKey Spec Breakdown:\n• ${brand.lexicon[0]}: Fundamental baseline verification\n• ${brand.lexicon[1]}: Eliminating cosmetic shortcuts\n• Operational Integrity: Verifiable evidence over marketing sentiment\n\nSave this Pin to your permanent resource board for technical reference.`.slice(0, 780);
   } else if (channel === 'X') {
-    // Under 260 characters
     postBody = `${topic.slice(0, 130)}. Conventional practices ignore ${brand.lexicon[0].toLowerCase()}. Signal over noise. Precision over panic.`.slice(0, 255);
   } else if (channel === 'TikTok') {
-    // Under 250 characters
     postBody = `Watch what happens when you evaluate ${topic.toLowerCase()} through raw ${brand.lexicon[0].toLowerCase()}. This single operational shift changes the entire outcome. Save this workflow.`.slice(0, 240);
   } else if (channel === 'Instagram') {
     postBody = `THE STANDARD OF EXCELLENCE.\n\n${topic}.\n\nIn our domain, ${brand.lexicon[0].toLowerCase()} is not an ornamental phrase. It is the boundary between lasting authority and operational compromise.\n\n1. Establish definitive benchmarks.\n2. Reject cosmetic remedies.\n3. Demand evidentiary precision.\n\nRead the full dossier in our archive.`;
@@ -103,7 +118,6 @@ function generateFallbackPackage(
     postBody = `The conversation surrounding ${topic.toLowerCase()} is too often clouded by superficial rhetoric.\n\nIn high-stakes environments, true authority requires grounding in ${lexiconTerms}.\n\nWhen leadership evaluates this challenge, three principles emerge:\n\n1. Structural Reality: Avoid short-term expedients that sacrifice permanent durability.\n2. Telemetry and Evidence: Validate every assertion against verifiable real-world metrics.\n3. Institutional Discipline: Protect core integrity before public posturing.\n\nTrue mastery is recognized not in the volume of claims made, but in the measurable permanence of execution.`;
   }
 
-  // Populate calibrated hooks from HOOK_LIBRARY tailored to the brand
   const selectedHookTemplates = platformHooks.slice(0, 3);
   const hooks = selectedHookTemplates.map((template, idx) => {
     let customized = template
@@ -149,11 +163,8 @@ function generateFallbackPackage(
   });
 
   const visualHeadline = `${brand.lexicon[0].toUpperCase()}: ${topic.split(' ').slice(0, 4).join(' ').toUpperCase()}`;
-
   const imagePrompt = `High-contrast cinematic editorial visual, representing ${brand.name}, color palette accents of ${brand.palette.accent} and deep rich background tones, architectural precision, 8k documentary photograph, award-winning editorial composition`;
-
   const tags = `#${brand.key.replace('_', '')} #${channel.replace(' ', '')} #${brand.lexicon[0].replace(/\s+/g, '')} #${brand.lexicon[1].replace(/\s+/g, '')} #ExecutiveLeadership`;
-
   const voiceoverScript = `[0:00-0:05 Hook]\n"${hooks[0]}"\n\n[0:05-0:18 Context]\n"Too many organizations treat ${topic.toLowerCase()} as a secondary consideration. But in reality, ${brand.lexicon[1].toLowerCase()} dictates the outcome."\n\n[0:18-0:32 Protocol]\n"When we analyze the underlying architecture, the evidentiary standard leaves no room for ambiguity."\n\n[0:32-0:45 Directive]\n"Ground your decisions in measurable reality. Measure what endures."\n\n[Music / Tone: ${brand.posture.slice(0, 40)}]`;
 
   return {
@@ -218,7 +229,7 @@ app.get('/api/hooks', (_req, res) => {
   res.json(HOOK_LIBRARY);
 });
 
-// Real AI Generation Route using Gemini 3.8 Flash
+// Real AI Generation Route
 app.post('/api/generate', async (req, res) => {
   const { brand_key, audience, channel, topic, magazine_column } = req.body;
   const brand = BRANDS[brand_key as BrandKey];
@@ -255,12 +266,7 @@ Generate a complete production package conforming strictly to this JSON schema:
 
   if (aiClient) {
     try {
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Gemini API request timed out')), 10000)
-      );
-
-      const geminiCall = aiClient.models.generateContent({
-        model: 'gemini-3.8-flash',
+      const response: any = await generateWithFallback(aiClient, {
         contents: prompt,
         config: {
           systemInstruction: SYSTEM_RULES,
@@ -269,7 +275,6 @@ Generate a complete production package conforming strictly to this JSON schema:
         },
       });
 
-      const response: any = await Promise.race([geminiCall, timeoutPromise]);
       const text = response.text?.trim() || '';
       const parsed = JSON.parse(text);
 
@@ -281,9 +286,7 @@ Generate a complete production package conforming strictly to this JSON schema:
         audience,
         topic,
         magazine_column: magazine_column || parsed.magazine_column || undefined,
-        hook_options: parsed.hook_options || [
-          `New directive in ${brand.lexicon[0]}`,
-        ],
+        hook_options: parsed.hook_options || [`New directive in ${brand.lexicon[0]}`],
         selected_hook: parsed.hook_options?.[0] || '',
         post_body: parsed.post_body || '',
         voiceover_script: parsed.voiceover_script || '',
@@ -295,21 +298,11 @@ Generate a complete production package conforming strictly to this JSON schema:
       };
 
       drafts.unshift(draft);
-      return res.json({ draft, source: 'gemini-3.8-flash' });
+      return res.json({ draft, source: 'gemini-active' });
     } catch (err: any) {
       console.warn('Gemini API call failed, using high-fidelity fallback generator:', err.message);
     }
   }
-
-  // Fallback high-fidelity generator when Gemini is not configured or fails
-  const fallbackPkg = generateFallbackPackage(
-    brand.key,
-    brand.name,
-    audience,
-    channel,
-    topic,
-    magazine_column
-  );
 
   const fallbackDraft: ProductionPackage = {
     id: `draft-${Date.now()}`,
@@ -319,13 +312,7 @@ Generate a complete production package conforming strictly to this JSON schema:
     audience,
     topic,
     magazine_column,
-    hook_options: fallbackPkg.hook_options,
-    selected_hook: fallbackPkg.hook_options[0],
-    post_body: fallbackPkg.post_body,
-    voiceover_script: fallbackPkg.voiceover_script,
-    visual_headline: fallbackPkg.visual_headline,
-    image_prompt: fallbackPkg.image_prompt,
-    hashtags: fallbackPkg.hashtags,
+    ...generateFallbackPackage(brand.key, brand.name, audience, channel, topic, magazine_column),
     status: 'pending_review',
     created_at: new Date().toISOString(),
   };
@@ -334,7 +321,7 @@ Generate a complete production package conforming strictly to this JSON schema:
   res.json({ draft: fallbackDraft, source: 'studio-autonomous-engine' });
 });
 
-// AI Angle / Topic Suggestion Route using Gemini 3.8 Flash
+// AI Topic Suggestion Route
 app.post('/api/ai/suggest-topics', async (req, res) => {
   const { brand_key, audience } = req.body;
   const brand = BRANDS[brand_key as BrandKey];
@@ -367,8 +354,7 @@ Respond in JSON format:
 
   if (aiClient) {
     try {
-      const response = await aiClient.models.generateContent({
-        model: 'gemini-3.8-flash',
+      const response: any = await generateWithFallback(aiClient, {
         contents: prompt,
         config: {
           systemInstruction: SYSTEM_RULES,
@@ -380,14 +366,13 @@ Respond in JSON format:
       const text = response.text?.trim() || '';
       const parsed = JSON.parse(text);
       if (Array.isArray(parsed.topics) && parsed.topics.length > 0) {
-        return res.json({ topics: parsed.topics, source: 'gemini-3.8-flash' });
+        return res.json({ topics: parsed.topics, source: 'gemini-active' });
       }
     } catch (err: any) {
       console.warn('Gemini topic suggestion error:', err.message);
     }
   }
 
-  // High-fidelity fallback based on brand sample topics
   const fallback = [
     `${brand.lexicon[0]} operational reality vs superficial market assumptions`,
     `Why conventional frameworks fail when evaluating ${brand.lexicon[1].toLowerCase()}`,
@@ -396,7 +381,7 @@ Respond in JSON format:
   res.json({ topics: fallback, source: 'brand-lexicon-heuristics' });
 });
 
-// AI Polish / Refinement Route for Approval Queue
+// AI Polish / Refinement Route
 app.post('/api/ai/refine', async (req, res) => {
   const { brand_key, channel, action, current_body, current_hook, current_headline, user_instruction } = req.body;
   const brand = BRANDS[brand_key as BrandKey];
@@ -456,8 +441,7 @@ Respond strictly with JSON:
 
   if (aiClient) {
     try {
-      const response = await aiClient.models.generateContent({
-        model: 'gemini-3.8-flash',
+      const response: any = await generateWithFallback(aiClient, {
         contents: prompt,
         config: {
           systemInstruction: SYSTEM_RULES,
@@ -468,13 +452,12 @@ Respond strictly with JSON:
 
       const text = response.text?.trim() || '';
       const parsed = JSON.parse(text);
-      return res.json({ result: parsed, source: 'gemini-3.8-flash' });
+      return res.json({ result: parsed, source: 'gemini-active' });
     } catch (err: any) {
       console.warn('Gemini refine call failed:', err.message);
     }
   }
 
-  // Fallback heuristic refinement
   let trimmedBody = current_body || '';
   if (action === 'tighten_chars' && charLimit) {
     trimmedBody = trimmedBody.slice(0, charLimit - 20) + '...';
@@ -495,7 +478,7 @@ Respond strictly with JSON:
   });
 });
 
-// AI Cross-Channel Adapt Route using Gemini 3.8 Flash
+// AI Cross-Channel Adapt Route
 app.post('/api/ai/adapt-channel', async (req, res) => {
   const { brand_key, target_channel, post_body, topic, original_hook } = req.body;
   const brand = BRANDS[brand_key as BrandKey];
@@ -536,8 +519,7 @@ Respond with JSON:
 
   if (aiClient) {
     try {
-      const response = await aiClient.models.generateContent({
-        model: 'gemini-3.8-flash',
+      const response: any = await generateWithFallback(aiClient, {
         contents: prompt,
         config: {
           systemInstruction: SYSTEM_RULES,
@@ -548,13 +530,12 @@ Respond with JSON:
 
       const text = response.text?.trim() || '';
       const parsed = JSON.parse(text);
-      return res.json({ result: parsed, source: 'gemini-3.8-flash' });
+      return res.json({ result: parsed, source: 'gemini-active' });
     } catch (err: any) {
       console.warn('Gemini adapt call failed:', err.message);
     }
   }
 
-  // Heuristic fallback
   const fallbackPkg = generateFallbackPackage(
     brand.key,
     brand.name,
@@ -573,12 +554,11 @@ Respond with JSON:
   });
 });
 
-// AI Voiceover Studio TTS Route using Gemini 3.8 Flash-Lite TTS
+// AI Voiceover Studio TTS Route
 app.post('/api/ai/tts', async (req, res) => {
   const { script, voice_name, style_prompt } = req.body;
-  const selectedVoice = voice_name || 'Kore'; // Prebuilt voices: 'Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'
+  const selectedVoice = voice_name || 'Kore';
 
-  // Clean script: strip timestamps and brackets
   const cleanScript = (script || '')
     .replace(/\[\d+:\d+-\d+:\d+[^\]]*\]/g, '')
     .replace(/\[Music[^\]]*\]/gi, '')
@@ -640,7 +620,7 @@ app.post('/api/ai/tts', async (req, res) => {
   });
 });
 
-// Brand Rules Retrieval Route for Governance & Audits
+// Brand Rules Retrieval Route
 app.get('/api/brands/:brand_key/rules', (req, res) => {
   const { brand_key } = req.params;
   const brand = BRANDS[brand_key as BrandKey];
@@ -653,7 +633,7 @@ app.get('/api/brands/:brand_key/rules', (req, res) => {
   });
 });
 
-// AI Picture Generator Route using Gemini 3.8 Flash & Brand Visual Rules
+// AI Picture Generator Route
 app.post('/api/ai/picture-generate', async (req, res) => {
   const { brand_key, topic, headline, aspect_ratio, custom_directive } = req.body;
   const brand = BRANDS[brand_key as BrandKey];
@@ -696,8 +676,7 @@ Generate an optimized, production-grade image prompt package conforming strictly
 
   if (aiClient) {
     try {
-      const response = await aiClient.models.generateContent({
-        model: 'gemini-3.8-flash',
+      const response: any = await generateWithFallback(aiClient, {
         contents: prompt,
         config: {
           systemInstruction: SYSTEM_RULES,
@@ -708,13 +687,12 @@ Generate an optimized, production-grade image prompt package conforming strictly
 
       const text = response.text?.trim() || '';
       const parsed = JSON.parse(text);
-      return res.json({ result: parsed, source: 'gemini-3.8-flash' });
+      return res.json({ result: parsed, source: 'gemini-active' });
     } catch (err: any) {
       console.warn('Gemini picture prompt generation failed:', err.message);
     }
   }
 
-  // Fallback high-fidelity response
   res.json({
     result: {
       imagen_prompt: `${rules.promptTemplate} Featuring architectural focus on ${topic || brand.sampleTopics[0]}, illuminated with ${brand.palette.names.accent} highlights on ${brand.palette.names.bg}. --ar ${chosenAr}`,
@@ -735,78 +713,41 @@ Generate an optimized, production-grade image prompt package conforming strictly
   });
 });
 
-// AI Video Generator & Motion Storyboard Route using Gemini 3.8 Flash & Brand Video Rules
+// AI Video Generator & Motion Storyboard Route
 app.post('/api/ai/video-storyboard', async (req, res) => {
-  const { brand_key, topic, voiceover_script, channel, aspect_ratio } = req.body;
+  const { brand_key, topic, video_length } = req.body;
   const brand = BRANDS[brand_key as BrandKey];
   if (!brand) return res.status(400).json({ error: 'Invalid brand key' });
 
-  const chosenAr = aspect_ratio || brand.videoRules.aspectRatios[0] || '9:16';
-  const vRules = brand.videoRules;
+  const rules = brand.videoRules;
 
   const prompt = `
-You are the Executive Video & Motion Director for ${brand.name}.
-Archetype: ${brand.archetype}
-Pacing Directive: ${vRules.pacingDirective}
-Motion & Camera Style: ${vRules.motionAndCameraStyle}
-Kinetic Typography Rules: ${vRules.kineticTypographyRules}
-Audio Bed Atmosphere: ${vRules.audioBedAtmosphere}
-Forbidden Motion Tropes: ${vRules.forbiddenMotionTropes.join(', ')}
-Aspect Ratio: ${chosenAr}
+You are the Executive Video Director for ${brand.name}.
+Target Pace & Rhythm: ${rules.pacingAndRhythm}
+Camera Movement: ${rules.cameraMotions.join(', ')}
+Audio Aesthetic: ${rules.audioDesign}
 
-Input Topic: ${topic || brand.sampleTopics[0]}
-Voiceover Script: ${voiceover_script || 'Standard brand protocol'}
+Topic: ${topic || brand.sampleTopics[0]}
+Requested Length: ${video_length || '30s'}
 
-Generate a 4-scene video storyboard sequence strictly conforming to this JSON format:
+Generate a kinetic motion storyboard package conforming strictly to this JSON format:
 {
-  "scenes": [
+  "storyboard": [
     {
-      "timestamp": "0:00 - 0:05",
-      "phase": "Hook",
-      "visualDescription": "Opening visual composition setting stop-scroll tension",
-      "cameraMovement": "Specific camera movement adhering to brand rules",
-      "kineticTextOverlay": "Crisp kinetic text on screen (under 5 words)",
-      "audioVoiceoverCue": "Opening hook audio voiceover",
-      "veo_prompt": "Cinematic prompt tailored for Google Veo 2 / Runway Gen-3"
-    },
-    {
-      "timestamp": "0:05 - 0:18",
-      "phase": "Tension",
-      "visualDescription": "Visual articulating the underlying operational tension",
-      "cameraMovement": "Camera motion",
-      "kineticTextOverlay": "Text overlay",
-      "audioVoiceoverCue": "Context audio cue",
-      "veo_prompt": "Prompt for video model"
-    },
-    {
-      "timestamp": "0:18 - 0:32",
-      "phase": "Diagnostic",
-      "visualDescription": "Evidentiary proof / telemetry breakdown",
-      "cameraMovement": "Camera motion",
-      "kineticTextOverlay": "Text overlay",
-      "audioVoiceoverCue": "Diagnostic audio cue",
-      "veo_prompt": "Prompt for video model"
-    },
-    {
-      "timestamp": "0:32 - 0:45",
-      "phase": "Command",
-      "visualDescription": "Definitive resolution and institutional brand seal",
-      "cameraMovement": "Camera motion",
-      "kineticTextOverlay": "Final directive headline",
-      "audioVoiceoverCue": "Command audio cue",
-      "veo_prompt": "Prompt for video model"
+      "timestamp": "0:00-0:05",
+      "visual_scene": "Description of opening shot",
+      "camera_direction": "Camera motion choice",
+      "audio_cue": "Voiceover or atmospheric sound"
     }
   ],
-  "pacing_notes": "${vRules.pacingDirective}",
-  "audio_bed": "${vRules.audioBedAtmosphere}",
-  "model_directives": "${vRules.aiModelDirectives}"
+  "veo_prompt": "Prompt for video generation model",
+  "editorial_notes": "Director's notes on pacing and color"
 }
 `;
 
   if (aiClient) {
     try {
-      const response = await aiClient.models.generateContent({
-        model: 'gemini-3.8-flash',
+      const response: any = await generateWithFallback(aiClient, {
         contents: prompt,
         config: {
           systemInstruction: SYSTEM_RULES,
@@ -817,366 +758,29 @@ Generate a 4-scene video storyboard sequence strictly conforming to this JSON fo
 
       const text = response.text?.trim() || '';
       const parsed = JSON.parse(text);
-      if (Array.isArray(parsed.scenes)) {
-        return res.json({ result: parsed, source: 'gemini-3.8-flash' });
-      }
+      return res.json({ result: parsed, source: 'gemini-active' });
     } catch (err: any) {
       console.warn('Gemini video storyboard generation failed:', err.message);
     }
   }
 
-  // Fallback high-fidelity storyboard
-  const fallbackScenes = [
-    {
-      timestamp: '0:00 - 0:05',
-      phase: 'Hook',
-      visualDescription: `Stark macro focus on ${brand.palette.names.bg} texture with directional ${brand.palette.names.accent} rim lighting.`,
-      cameraMovement: 'Slow forward dolly tracking, locking onto focal point.',
-      kineticTextOverlay: `${brand.lexicon[0]} Protocol`,
-      audioVoiceoverCue: `When evaluating ${topic || brand.sampleTopics[0]}, conventional assumptions fail.`,
-      veo_prompt: `${vRules.aiModelDirectives} Establishing shot, dramatic tension.`,
-    },
-    {
-      timestamp: '0:05 - 0:18',
-      phase: 'Tension',
-      visualDescription: `Architectural cross-section revealing systemic friction in ${brand.palette.names.bg}.`,
-      cameraMovement: 'Smooth lateral tracking slider, 24fps motion cadence.',
-      kineticTextOverlay: 'The Structural Blindspot',
-      audioVoiceoverCue: `Too many leaders treat this as a cosmetic detail rather than a structural risk.`,
-      veo_prompt: `${vRules.aiModelDirectives} Structural tension scene.`,
-    },
-    {
-      timestamp: '0:18 - 0:32',
-      phase: 'Diagnostic',
-      visualDescription: `High-fidelity telemetry and evidentiary proof aligned with ${brand.lexicon[1] || brand.lexicon[0]}.`,
-      cameraMovement: 'Subtle rack focus from foreground metric to background architectural depth.',
-      kineticTextOverlay: 'Evidentiary Proof',
-      audioVoiceoverCue: `When we analyze the underlying architecture, ambiguity disappears.`,
-      veo_prompt: `${vRules.aiModelDirectives} Evidentiary diagnostic focus.`,
-    },
-    {
-      timestamp: '0:32 - 0:45',
-      phase: 'Command',
-      visualDescription: `Definitive resolution framed with ${brand.name} signature sovereign seal.`,
-      cameraMovement: 'Slow steady pull-back revealing complete structural symmetry.',
-      kineticTextOverlay: 'Measure What Endures',
-      audioVoiceoverCue: `Ground your decisions in measurable reality. Calibrate your standards accordingly.`,
-      veo_prompt: `${vRules.aiModelDirectives} Final sovereign resolution.`,
-    },
-  ];
-
   res.json({
     result: {
-      scenes: fallbackScenes,
-      pacing_notes: vRules.pacingDirective,
-      audio_bed: vRules.audioBedAtmosphere,
-      model_directives: vRules.aiModelDirectives,
-    },
-    source: 'brand-rules-engine',
-  });
-});
-
-// AI Deep Brand Compliance & Constraint Audit Route
-app.post('/api/ai/audit', async (req, res) => {
-  const { brand_key, text, channel } = req.body;
-  const brand = BRANDS[brand_key as BrandKey];
-
-  if (!brand) {
-    return res.status(400).json({ error: 'Invalid brand key' });
-  }
-
-  const prompt = `
-Brand: ${brand.name}
-Archetype: ${brand.archetype}
-Rhetorical Posture: ${brand.posture}
-Mandatory Lexicon: ${brand.lexicon.join(', ')}
-Negative Constraints: ${brand.negativeConstraints}
-Forbidden Brand Slang: ${brand.forbiddenWords.join(', ')}
-Universal Fluff to Penalize: delve, tapestry, game-changer, beacon, unlock, elevate
-Channel: ${channel || 'Generic'}
-
-TEXT TO AUDIT:
-"""
-${text}
-"""
-
-Evaluate this copy strictly. Respond with JSON:
-{
-  "compliance_score": 88, // 0-100 integer
-  "verdict": "COMPLIANT" | "NON_COMPLIANT" | "NEEDS_REFINEMENT",
-  "identified_violations": ["Forbidden term: ...", "Tone violation: ..."],
-  "matched_lexicon": ["Mandatory term matched"],
-  "missing_lexicon": ["Suggested term to include"],
-  "critique": "2-sentence executive diagnosis of rhetorical posture",
-  "surgical_rewrite": "Rewritten version eliminating all violations and strictly honoring brand constraints"
-}
-`;
-
-  if (aiClient) {
-    try {
-      const response = await aiClient.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: prompt,
-        config: {
-          systemInstruction: SYSTEM_RULES,
-          temperature: 0.2,
-          responseMimeType: 'application/json',
+      storyboard: [
+        {
+          timestamp: '0:00-0:05',
+          visual_scene: `Stark macro opening focusing on ${brand.lexicon[0]} architectural details.`,
+          camera_direction: rules.cameraMotions[0] || 'Slow push-in',
+          audio_cue: 'Deep atmospheric bass resonance with crisp VO hook.',
         },
-      });
-
-      const jsonStr = response.text?.trim() || '';
-      const parsed = JSON.parse(jsonStr);
-      return res.json({ result: parsed, source: 'gemini-3.8-flash' });
-    } catch (err: any) {
-      console.warn('Gemini audit call failed:', err.message);
-    }
-  }
-
-  // Fallback audit
-  const lower = (text || '').toLowerCase();
-  const detectedForbidden = brand.forbiddenWords.filter((w) => lower.includes(w.toLowerCase()));
-  const detectedFluff = ['delve', 'tapestry', 'game-changer', 'beacon', 'unlock', 'elevate'].filter((w) =>
-    lower.includes(w)
-  );
-  const matchedLexicon = brand.lexicon.filter((w) => lower.includes(w.toLowerCase()));
-
-  const violations = [
-    ...detectedForbidden.map((w) => `Brand Forbidden Slang: "${w}"`),
-    ...detectedFluff.map((w) => `Universal Fluff: "${w}"`),
-  ];
-
-  const score = Math.max(20, 100 - violations.length * 25 + matchedLexicon.length * 10);
-
-  res.json({
-    result: {
-      compliance_score: Math.min(100, score),
-      verdict: violations.length === 0 ? 'COMPLIANT' : 'NON_COMPLIANT',
-      identified_violations: violations,
-      matched_lexicon: matchedLexicon,
-      missing_lexicon: brand.lexicon.filter((w) => !lower.includes(w.toLowerCase())).slice(0, 2),
-      critique: `Heuristic evaluation against ${brand.name} negative constraints and lexicon baseline.`,
-      surgical_rewrite: text,
+      ],
+      veo_prompt: `Cinematic footage of ${brand.name} aesthetic, ${rules.pacingAndRhythm}, 8k video.`,
+      editorial_notes: 'Maintain stark contrast and brand pacing throughout.',
     },
-    source: 'heuristic-rules',
+    source: 'brand-video-rules-engine',
   });
 });
 
-// ─────────────────────────────────────────────────────────────
-// Pixabay Curated Media Integration
-// Curates editorial photography & stock b-roll avoiding commercial stock gloss
-// ─────────────────────────────────────────────────────────────
-
-const BANNED_PIXABAY_TAGS = new Set([
-  'cartoon',
-  'illustration',
-  'isolated',
-  'white background',
-  '3d render',
-  'concept',
-]);
-
-async function fetchCuratedPixabayPhoto(searchQuery: string, orientation = 'all') {
-  const pixabayKey = process.env.PIXABAY_API_KEY;
-  if (!pixabayKey || pixabayKey === 'your_pixabay_api_key_here') {
-    return null;
-  }
-
-  // Anchor the search query with editorial texture to avoid commercial stock gloss
-  const curatedQ = `${searchQuery} subtle film dark`;
-  const page = Math.floor(Math.random() * 2) + 1;
-
-  const url = new URL('https://pixabay.com/api/');
-  url.searchParams.set('key', pixabayKey);
-  url.searchParams.set('q', curatedQ);
-  url.searchParams.set('image_type', 'photo');
-  url.searchParams.set('orientation', orientation);
-  url.searchParams.set('safesearch', 'true');
-  url.searchParams.set('per_page', '20');
-  url.searchParams.set('page', String(page));
-
-  try {
-    let res = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
-    let data: any = await res.json();
-    let hits = Array.isArray(data.hits) ? data.hits : [];
-
-    if (hits.length === 0) {
-      // Fallback to unadorned query if refined query was too strict
-      url.searchParams.set('q', searchQuery);
-      url.searchParams.set('page', '1');
-      res = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
-      data = await res.json();
-      hits = Array.isArray(data.hits) ? data.hits : [];
-    }
-
-    const qualifyingPhotos = hits.filter((photo: any) => {
-      const tags = (photo.tags || '').toLowerCase().split(',').map((t: string) => t.trim());
-      const downloads = photo.downloads || 0;
-
-      // RULE 1: Reject images with cheesy or artificial tags
-      if (tags.some((t: string) => BANNED_PIXABAY_TAGS.has(t))) return false;
-      // RULE 2: Over-saturation filter (pass up images downloaded hundreds of thousands of times)
-      if (downloads > 60000) return false;
-      // RULE 3: Quality threshold (must have reasonable community approval without being viral stock)
-      if (downloads < 50) return false;
-
-      return true;
-    });
-
-    const candidateList = (qualifyingPhotos.length > 0 ? qualifyingPhotos : hits).slice(0, 8).map((item: any) => ({
-      url: item.largeImageURL || item.webformatURL,
-      preview_url: item.webformatURL,
-      user: item.user,
-      tags: item.tags,
-      downloads: item.downloads,
-    }));
-
-    if (qualifyingPhotos.length > 0) {
-      const pool = qualifyingPhotos.slice(0, 8);
-      const winner = pool[Math.floor(Math.random() * pool.length)];
-      return {
-        url: winner.largeImageURL || winner.webformatURL,
-        preview_url: winner.webformatURL,
-        user: winner.user,
-        tags: winner.tags,
-        downloads: winner.downloads,
-        candidates: candidateList,
-      };
-    } else if (hits.length > 0) {
-      const winner = hits[0];
-      return {
-        url: winner.largeImageURL || winner.webformatURL,
-        preview_url: winner.webformatURL,
-        user: winner.user,
-        tags: winner.tags,
-        downloads: winner.downloads,
-        candidates: candidateList,
-      };
-    }
-  } catch (err: any) {
-    console.warn('Pixabay photo fetch error:', err.message);
-  }
-
-  return null;
-}
-
-async function fetchCuratedPixabayVideo(searchQuery: string) {
-  const pixabayKey = process.env.PIXABAY_API_KEY;
-  if (!pixabayKey || pixabayKey === 'your_pixabay_api_key_here') {
-    return null;
-  }
-
-  const url = new URL('https://pixabay.com/api/videos/');
-  url.searchParams.set('key', pixabayKey);
-  url.searchParams.set('q', searchQuery);
-  url.searchParams.set('safesearch', 'true');
-  url.searchParams.set('per_page', '12');
-
-  try {
-    const res = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
-    const data: any = await res.json();
-    const hits = Array.isArray(data.hits) ? data.hits : [];
-
-    // Filter videos with extreme view counts to avoid generic b-roll
-    const curatedVideos = hits.filter((v: any) => (v.downloads || 0) < 30000);
-    const pool = curatedVideos.length > 0 ? curatedVideos : hits;
-
-    if (pool.length > 0) {
-      const candidatePool = pool.slice(0, 6);
-      const chosen = candidatePool[Math.floor(Math.random() * candidatePool.length)];
-      const vids = chosen.videos || {};
-      const videoUrl = vids.medium?.url || vids.large?.url || vids.small?.url;
-      const candidates = candidatePool.map((v: any) => {
-        const itemVids = v.videos || {};
-        return {
-          url: itemVids.medium?.url || itemVids.large?.url || itemVids.small?.url,
-          duration: v.duration,
-          user: v.user,
-          tags: v.tags,
-          downloads: v.downloads,
-          picture_id: v.picture_id,
-        };
-      });
-
-      return {
-        url: videoUrl,
-        duration: chosen.duration,
-        user: chosen.user,
-        tags: chosen.tags,
-        downloads: chosen.downloads,
-        picture_id: chosen.picture_id,
-        candidates,
-      };
-    }
-  } catch (err: any) {
-    console.warn('Pixabay video fetch error:', err.message);
-  }
-
-  return null;
-}
-
-// Pixabay Media API Routes
-app.get('/api/media/pixabay-status', (_req, res) => {
-  const isConfigured = Boolean(
-    process.env.PIXABAY_API_KEY && process.env.PIXABAY_API_KEY !== 'your_pixabay_api_key_here'
-  );
-  res.json({ configured: isConfigured });
+app.listen(PORT, () => {
+  console.log(`Server running dynamically on port ${PORT}`);
 });
-
-app.post('/api/media/pixabay-photo', async (req, res) => {
-  const { query, orientation = 'all' } = req.body;
-  if (!query) {
-    return res.status(400).json({ error: 'Search query required' });
-  }
-
-  const isConfigured = Boolean(
-    process.env.PIXABAY_API_KEY && process.env.PIXABAY_API_KEY !== 'your_pixabay_api_key_here'
-  );
-
-  const photoResult = await fetchCuratedPixabayPhoto(query, orientation);
-  res.json({
-    photo: photoResult,
-    candidates: (photoResult as any)?.candidates || [],
-    configured: isConfigured,
-  });
-});
-
-app.post('/api/media/pixabay-video', async (req, res) => {
-  const { query } = req.body;
-  if (!query) {
-    return res.status(400).json({ error: 'Search query required' });
-  }
-
-  const isConfigured = Boolean(
-    process.env.PIXABAY_API_KEY && process.env.PIXABAY_API_KEY !== 'your_pixabay_api_key_here'
-  );
-
-  const videoResult = await fetchCuratedPixabayVideo(query);
-  res.json({
-    video: videoResult,
-    candidates: (videoResult as any)?.candidates || [],
-    configured: isConfigured,
-  });
-});
-
-// Vite Middleware Mounting for Dev vs Static Serving for Production
-async function setupServer() {
-  if (process.env.NODE_ENV !== 'production') {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    app.use(express.static(path.resolve('dist')));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.resolve('dist', 'index.html'));
-    });
-  }
-
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`⚡ YazooBlu Editorial Engine active on http://0.0.0.0:${PORT}`);
-  });
-}
-
-setupServer();
