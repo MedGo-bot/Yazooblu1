@@ -68,7 +68,7 @@ BOS_COLUMNS = {
     "Fashion with Juan": {
         "id": "fashion_with_juan",
         "author": "Juan Hernandez",
-        "focus": "Juan invites you to transcend conventional style and explore the boundaries of editorial expression.",
+        "focus": "Juan invites you to transcend conventional style and explore tailoring and the attitude of the look of the day.",
         "recommended_channels": ["Instagram", "Pinterest", "YouTube", "TikTok"],
         "sample_topics": [
             "Transcending convention: Sartorial dominance through silhouette architecture",
@@ -161,9 +161,21 @@ BOS_COLUMNS = {
             "The architecture of reinvention: How leaders rebuild stronger after crisis",
         ],
     },
+    "Ask Fred": {
+        "id": "ask_fred",
+        "author": "Fred",
+        "focus": "Direct, unfiltered advice and answers to strategic, professional, and personal inquiries.",
+        "recommended_channels": ["Substack", "X", "LinkedIn"],
+        "sample_topics": [
+            "Navigating executive cross-currents and high-stakes dilemmas",
+            "Reader Q&A: Deciphering unspoken rules in business and life",
+            "Tactical counsel on leadership under pressure",
+        ],
+    },
 }
 
 BOS_COLUMN_NAMES = list(BOS_COLUMNS.keys())
+
 
     
    
