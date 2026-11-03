@@ -49,11 +49,11 @@ export const CHANNEL_SPECS: Record<Channel, ChannelSpec> = {
 
 export type PipelineStageKey =
   | 'strategy'
-  | 'ideation'
-  | 'approval_1'
   | 'traffic'
-  | 'production'
+  | 'ideation'
   | 'auditing'
+  | 'approval_1'
+  | 'production'
   | 'polish'
   | 'qc';
 
@@ -66,14 +66,62 @@ export interface PipelineStageInfo {
 }
 
 export const PIPELINE_STAGES: PipelineStageInfo[] = [
-  { key: 'strategy', stepNumber: 1, title: 'Strategy', workers: 'Strategist & Account Manager', roleDescription: 'Create the brief and define strategic tension.' },
-  { key: 'ideation', stepNumber: 2, title: 'Ideation', workers: 'Creative Director & Copywriters', roleDescription: 'Guide copywriters and art directors to create concepts.' },
-  { key: 'approval_1', stepNumber: 3, title: 'Approval 1', workers: 'Chief Creative Officer', roleDescription: 'Approves core concept and unlocks asset logistics.' },
-  { key: 'traffic', stepNumber: 4, title: 'Traffic Manager', workers: 'Traffic Manager', roleDescription: 'The logistics engine. Sets deadlines, routes assets.' },
-  { key: 'production', stepNumber: 5, title: 'Production', workers: 'Audio/VO & Visual Director', roleDescription: 'Create raw visual overlay and voiceover script assets.' },
-  { key: 'auditing', stepNumber: 6, title: 'Auditing & Assembly', workers: 'Voice & Constraint Auditor', roleDescription: 'Audit constraints, assemble copy cadence.' },
-  { key: 'polish', stepNumber: 7, title: 'Final Polish', workers: 'Platform Packaging Agent', roleDescription: 'Format assets strictly to platform character limits.' },
-  { key: 'qc', stepNumber: 8, title: 'Quality Control', workers: 'Creative Director (QC)', roleDescription: 'Final verification and executive go/no-go sign-off.' },
+  {
+    key: 'strategy',
+    stepNumber: 1,
+    title: 'Strategy & Ingestion',
+    workers: 'Sunday Night Autonomous Engine',
+    roleDescription: 'Pulls search targets and RSS feeds from Neon queue to establish topic tension.',
+  },
+  {
+    key: 'traffic',
+    stepNumber: 2,
+    title: 'Traffic & Logistics Engine',
+    workers: 'Traffic Manager',
+    roleDescription: 'Routes brand deliverables, reserves publication windows, and assigns channels.',
+  },
+  {
+    key: 'ideation',
+    stepNumber: 3,
+    title: 'Ideation & Angle Assembly',
+    workers: 'Creative Director & Copywriter Agent',
+    roleDescription: 'Drafts high-retention hooks and core narrative body copy.',
+  },
+  {
+    key: 'auditing',
+    stepNumber: 4,
+    title: 'Constraint & Voice Audit',
+    workers: 'Voice & Brand Auditor',
+    roleDescription: 'Filters forbidden words and strictly aligns brand posture and lexicon.',
+  },
+  {
+    key: 'approval_1',
+    stepNumber: 5,
+    title: 'Executive Review & Manual Inject',
+    workers: 'Editor-in-Chief / Executive Desk',
+    roleDescription: 'Monday morning review gate: inject breaking topics, revise copy, or unlock production.',
+  },
+  {
+    key: 'production',
+    stepNumber: 6,
+    title: 'Media Production',
+    workers: 'Visual & Audio Director Agents',
+    roleDescription: 'Generates image prompts, storyboards, Pixabay media, and VO cues.',
+  },
+  {
+    key: 'polish',
+    stepNumber: 7,
+    title: 'Platform Formatting',
+    workers: 'Platform Packaging Agent',
+    roleDescription: 'Applies channel-specific character caps, spacing, and hashtag clusters.',
+  },
+  {
+    key: 'qc',
+    stepNumber: 8,
+    title: 'Final Quality Control',
+    workers: 'Executive Director (QC)',
+    roleDescription: 'Final sign-off; sets status to approved and commits package to database.',
+  },
 ];
 
 export interface ColumnDesk {
@@ -115,7 +163,6 @@ export interface BrandConfig {
   sampleTopics?: string[];
 }
 
-// Convert modular brands array to the Record structure the React UI expects
 export const BRANDS: Record<string, BrandConfig> = ALL_BRANDS.reduce((acc, brand) => {
   acc[brand.key] = brand;
   return acc;
@@ -146,3 +193,4 @@ export interface ProductionPackage {
   created_at: string;
   scheduled_at?: string;
 }
+
