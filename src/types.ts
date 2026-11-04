@@ -194,3 +194,22 @@ export interface ProductionPackage {
   scheduled_at?: string;
 }
 
+// ==========================================
+// Hook Library Definitions & Exports
+// ==========================================
+
+export interface HookTemplate {
+  id?: number;
+  channel_key: string;
+  hook_text: string;
+  channel_name?: string;
+  badge?: string;
+}
+
+export const HOOK_LIBRARY: HookTemplate[] = [];
+
+// ==========================================
+// Editorial Constraint Fallbacks
+// ==========================================
+
+export const FORBIDDEN_UNIVERSAL_WORDS: string[] = [];
