@@ -23,7 +23,20 @@ export const SocialCardCanvas: React.FC<SocialCardCanvasProps> = ({
   const [copied, setCopied] = useState(false);
   const [downloading, setDownloading] = useState(false);
 
-  const brand = BRANDS[brandKey] || BRANDS.fyrrion;
+  // Safe Brand Resolution
+  const brand = BRANDS[brandKey] || BRANDS.bes_outkast || BRANDS.bhw_pr || Object.values(BRANDS)[0] || ({} as any);
+
+  // Resilient Design Tokens with Strict Defaults
+  const accent = brand?.palette?.accent || brand?.colors?.accent || '#D97706';
+  const bg = brand?.palette?.bg || brand?.colors?.primary || '#0F172A';
+  const secondary = brand?.palette?.secondary || brand?.colors?.secondary || '#4B5563';
+  const text = brand?.palette?.text || '#F8FAFC';
+  const brandName = brand?.name || 'Sovereign Brand';
+  const brandKeyStr = (brand?.key || brandKey || 'BRAND').toString();
+  const archetypeStr = (brand?.archetype || 'SOVEREIGN DIRECTIVE').toString();
+  const lexiconList: string[] = Array.isArray(brand?.lexicon) && brand.lexicon.length > 0 
+    ? brand.lexicon 
+    : ['STRATEGIC AUTHORITY', 'EXECUTIVE INTEGRITY'];
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -37,15 +50,15 @@ export const SocialCardCanvas: React.FC<SocialCardCanvasProps> = ({
 
     // Background gradient with subtle secondary depth
     const bgGrad = ctx.createLinearGradient(0, 0, width, height);
-    bgGrad.addColorStop(0, brand.palette.bg);
-    bgGrad.addColorStop(0.7, brand.palette.bg);
-    bgGrad.addColorStop(1, `${brand.palette.secondary}35`);
+    bgGrad.addColorStop(0, bg);
+    bgGrad.addColorStop(0.7, bg);
+    bgGrad.addColorStop(1, `${secondary}35`);
     ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, width, height);
 
     // Subtle modern geometric background texture / watermarks
     ctx.save();
-    ctx.strokeStyle = `${brand.palette.accent}12`;
+    ctx.strokeStyle = `${accent}12`;
     ctx.lineWidth = 1;
     // Grid lines
     for (let x = 100; x < width; x += 120) {
@@ -64,52 +77,52 @@ export const SocialCardCanvas: React.FC<SocialCardCanvasProps> = ({
     // Concentric watermark circles utilizing secondary and accent colors
     ctx.beginPath();
     ctx.arc(width - 120, 140, 260, 0, Math.PI * 2);
-    ctx.strokeStyle = `${brand.palette.secondary}25`;
+    ctx.strokeStyle = `${secondary}25`;
     ctx.lineWidth = 2;
     ctx.stroke();
 
     ctx.beginPath();
     ctx.arc(width - 120, 140, 180, 0, Math.PI * 2);
-    ctx.strokeStyle = `${brand.palette.accent}20`;
+    ctx.strokeStyle = `${accent}20`;
     ctx.lineWidth = 1.5;
     ctx.stroke();
     ctx.restore();
 
     // Accent Left Border Bar (spec from Python blueprint: primary accent 24px + secondary accent 4px)
-    ctx.fillStyle = brand.palette.accent;
+    ctx.fillStyle = accent;
     ctx.fillRect(0, 0, 24, height);
 
-    ctx.fillStyle = brand.palette.secondary;
+    ctx.fillStyle = secondary;
     ctx.fillRect(24, 0, 4, height);
 
     // Accent top hairline highlight
-    ctx.fillStyle = brand.palette.accent;
+    ctx.fillStyle = accent;
     ctx.fillRect(28, 0, width - 28, 4);
 
     // Brand Label Header: [BRAND_KEY.UPPER()]
-    ctx.fillStyle = brand.palette.accent;
+    ctx.fillStyle = accent;
     ctx.font = 'bold 38px monospace, ui-monospace, sans-serif';
-    ctx.fillText(`[${brand.key.toUpperCase()}]`, 75, 95);
+    ctx.fillText(`[${brandKeyStr.toUpperCase()}]`, 75, 95);
 
     // Brand Full Name sub-label
-    ctx.fillStyle = `${brand.palette.text}90`;
+    ctx.fillStyle = `${text}90`;
     ctx.font = '500 24px system-ui, -apple-system, sans-serif';
-    ctx.fillText(brand.name.toUpperCase(), 75, 135);
+    ctx.fillText(brandName.toUpperCase(), 75, 135);
 
     // Archetype pill tag with secondary border
-    ctx.fillStyle = `${brand.palette.accent}18`;
-    const tagText = brand.archetype.toUpperCase();
+    ctx.fillStyle = `${accent}18`;
+    const tagText = archetypeStr.toUpperCase();
     ctx.font = '600 20px monospace';
     const tagWidth = ctx.measureText(tagText).width + 30;
     ctx.fillRect(75, 160, tagWidth, 36);
-    ctx.strokeStyle = `${brand.palette.secondary}50`;
+    ctx.strokeStyle = `${secondary}50`;
     ctx.lineWidth = 1;
     ctx.strokeRect(75, 160, tagWidth, 36);
-    ctx.fillStyle = brand.palette.accent;
+    ctx.fillStyle = accent;
     ctx.fillText(tagText, 90, 185);
 
     // Divider line
-    ctx.strokeStyle = `${brand.palette.accent}40`;
+    ctx.strokeStyle = `${accent}40`;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(75, 230);
@@ -117,7 +130,7 @@ export const SocialCardCanvas: React.FC<SocialCardCanvasProps> = ({
     ctx.stroke();
 
     // Word-wrap Headline calculation
-    const words = (headline || `${brand.name} Directive`).split(' ');
+    const words = (headline || `${brandName} Directive`).split(' ');
     const lines: string[] = [];
     let currentLine: string[] = [];
 
@@ -134,7 +147,7 @@ export const SocialCardCanvas: React.FC<SocialCardCanvasProps> = ({
     }
 
     // Render Headline Text
-    ctx.fillStyle = brand.palette.text;
+    ctx.fillStyle = text;
     ctx.font = '800 68px "Inter", system-ui, -apple-system, sans-serif';
     ctx.textBaseline = 'top';
 
@@ -147,7 +160,7 @@ export const SocialCardCanvas: React.FC<SocialCardCanvasProps> = ({
     });
 
     // Bottom Footer Area
-    ctx.strokeStyle = `${brand.palette.secondary}40`;
+    ctx.strokeStyle = `${secondary}40`;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(75, height - 140);
@@ -155,13 +168,13 @@ export const SocialCardCanvas: React.FC<SocialCardCanvasProps> = ({
     ctx.stroke();
 
     // Footer Lexicon Badges
-    ctx.fillStyle = `${brand.palette.text}80`;
+    ctx.fillStyle = `${text}80`;
     ctx.font = '500 22px monospace';
-    const primaryLexicon = brand.lexicon.slice(0, 2).join(' • ');
+    const primaryLexicon = lexiconList.slice(0, 2).join(' • ');
     ctx.fillText(`MANDATE: ${primaryLexicon.toUpperCase()}`, 75, height - 90);
 
     // YazooBlu Watermark
-    ctx.fillStyle = `${brand.palette.accent}99`;
+    ctx.fillStyle = `${accent}99`;
     ctx.font = '600 20px monospace';
     ctx.textAlign = 'right';
     ctx.fillText('YAZOOBLU // EDITORIAL ENGINE', width - 80, height - 90);
@@ -169,21 +182,21 @@ export const SocialCardCanvas: React.FC<SocialCardCanvasProps> = ({
 
     // 4-Color Palette Signature dots in footer
     const swatches = [
-      { color: brand.palette.bg, label: 'BG' },
-      { color: brand.palette.accent, label: 'ACCENT' },
-      { color: brand.palette.secondary, label: 'SEC' },
-      { color: brand.palette.text, label: 'TEXT' },
+      { color: bg, label: 'BG' },
+      { color: accent, label: 'ACCENT' },
+      { color: secondary, label: 'SEC' },
+      { color: text, label: 'TEXT' },
     ];
     swatches.forEach((s, idx) => {
       ctx.beginPath();
       ctx.arc(75 + idx * 22, height - 52, 6, 0, Math.PI * 2);
       ctx.fillStyle = s.color;
       ctx.fill();
-      ctx.strokeStyle = `${brand.palette.text}40`;
+      ctx.strokeStyle = `${text}40`;
       ctx.lineWidth = 1;
       ctx.stroke();
     });
-  }, [brandKey, headline, width, height, brand]);
+  }, [brandKey, headline, width, height, brand, accent, bg, secondary, text, brandName, brandKeyStr, archetypeStr]);
 
   const handleDownload = () => {
     const canvas = canvasRef.current;
@@ -191,7 +204,7 @@ export const SocialCardCanvas: React.FC<SocialCardCanvasProps> = ({
     setDownloading(true);
     const dataUrl = canvas.toDataURL('image/png');
     const link = document.createElement('a');
-    link.download = `${brandKey}-social-card-${Date.now()}.png`;
+    link.download = `${brandKeyStr}-social-card-${Date.now()}.png`;
     link.href = dataUrl;
     link.click();
     setTimeout(() => setDownloading(false), 800);
@@ -219,7 +232,7 @@ export const SocialCardCanvas: React.FC<SocialCardCanvasProps> = ({
       <div
         className="relative rounded-xl overflow-hidden shadow-2xl border border-white/10 w-full aspect-square max-w-[420px] bg-black/60 group"
         style={{
-          boxShadow: `0 20px 40px -15px ${brand.palette.accent}25`,
+          boxShadow: `0 20px 40px -15px ${accent}25`,
         }}
       >
         <canvas
@@ -241,7 +254,7 @@ export const SocialCardCanvas: React.FC<SocialCardCanvasProps> = ({
               onClick={handleCopy}
               className="px-4 py-2 bg-black/80 text-white border border-white/30 font-medium rounded-lg text-sm flex items-center gap-2 hover:bg-black transition cursor-pointer"
             >
-              {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+              {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-white" />}
               {copied ? 'Copied' : 'Copy'}
             </button>
           </div>
@@ -274,3 +287,5 @@ export const SocialCardCanvas: React.FC<SocialCardCanvasProps> = ({
     </div>
   );
 };
+
+export default SocialCardCanvas;
