@@ -38,20 +38,38 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
   onApplyImagePrompt,
   onSelectPhotoUrl,
 }) => {
+  // Safe Fallback Tokens
+  const accentColor = brand?.palette?.accent || brand?.colors?.accent || '#D97706';
+  const bgColor = brand?.palette?.bg || brand?.colors?.primary || '#0F172A';
+  const secondaryColor = brand?.palette?.secondary || brand?.colors?.secondary || '#4B5563';
+  const textColor = brand?.palette?.text || '#F8FAFC';
+  const accentName = brand?.palette?.names?.accent || 'Amber';
+
+  const defaultSubject =
+    brand?.pictureRules?.permittedSubjects?.[0] || 'Editorial Architecture & Sovereign Stance';
+  const defaultTopic = topic || brand?.sampleTopics?.[0] || brand?.name || 'Strategic Directive';
+  const defaultLexicon = brand?.lexicon?.[0] || 'Authority';
+  const defaultPromptTemplate =
+    brand?.pictureRules?.promptTemplate ||
+    `High-contrast chiaroscuro architectural study for ${brand?.name || 'Sovereign'}`;
+  const defaultForbiddenTropes = (
+    brand?.pictureRules?.forbiddenVisualTropes || ['generic corporate stock', 'neon glow', '3D render']
+  ).join(', ');
+
   const [aspectRatio, setAspectRatio] = useState<'1:1' | '16:9' | '9:16' | '4:5'>('1:1');
-  const [selectedSubject, setSelectedSubject] = useState<string>(brand.pictureRules.permittedSubjects[0]);
+  const [selectedSubject, setSelectedSubject] = useState<string>(defaultSubject);
   const [customDirective, setCustomDirective] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  const [generatedPrompt, setGeneratedPrompt] = useState<string>(brand.pictureRules.promptTemplate);
-  const [negativePrompt, setNegativePrompt] = useState<string>(brand.pictureRules.forbiddenVisualTropes.join(', '));
+  const [generatedPrompt, setGeneratedPrompt] = useState<string>(defaultPromptTemplate);
+  const [negativePrompt, setNegativePrompt] = useState<string>(defaultForbiddenTropes);
   const [visualConcept, setVisualConcept] = useState<string>(
-    `Architectural photographic composition for ${brand.name} highlighting ${brand.lexicon[0]} with directional ${brand.palette.names.accent} lighting.`
+    `Architectural photographic composition for ${brand?.name || 'Sovereign'} highlighting ${defaultLexicon} with directional ${accentName} lighting.`
   );
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'artistic_canvas' | 'pixabay_photo' | 'typographic_card'>('artistic_canvas');
 
   // Curated Pixabay State
-  const [pixabayQuery, setPixabayQuery] = useState<string>(topic || brand.sampleTopics[0] || brand.name);
+  const [pixabayQuery, setPixabayQuery] = useState<string>(defaultTopic);
   const [pixabayOrientation, setPixabayOrientation] = useState<'all' | 'horizontal' | 'vertical'>('all');
   const [isSearchingPixabay, setIsSearchingPixabay] = useState<boolean>(false);
   const [pixabayPhoto, setPixabayPhoto] = useState<{
@@ -76,13 +94,20 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
 
   // Update subject when brand changes
   useEffect(() => {
-    setSelectedSubject(brand.pictureRules.permittedSubjects[0]);
-    setGeneratedPrompt(
-      `${brand.pictureRules.promptTemplate} Featuring architectural focus on ${topic || brand.sampleTopics[0]}.`
+    const activeSubject =
+      brand?.pictureRules?.permittedSubjects?.[0] || 'Editorial Architecture & Sovereign Stance';
+    const activeTopic = topic || brand?.sampleTopics?.[0] || brand?.name || 'Strategic Directive';
+    const template =
+      brand?.pictureRules?.promptTemplate ||
+      `High-contrast chiaroscuro architectural study for ${brand?.name || 'Sovereign'}`;
+
+    setSelectedSubject(activeSubject);
+    setGeneratedPrompt(`${template} Featuring architectural focus on ${activeTopic}.`);
+    setNegativePrompt(
+      (brand?.pictureRules?.forbiddenVisualTropes || ['generic corporate stock', 'neon glow']).join(', ')
     );
-    setNegativePrompt(brand.pictureRules.forbiddenVisualTropes.join(', '));
-    setPixabayQuery(topic || brand.sampleTopics[0] || brand.name);
-  }, [brand.key, topic]);
+    setPixabayQuery(activeTopic);
+  }, [brand?.key, topic]);
 
   // Handle Copy
   const handleCopy = (text: string, key: string) => {
@@ -91,12 +116,12 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  // Fetch Curated Pixabay Photo (Filters out commercial stock gloss & over-saturated viral hits)
+  // Fetch Curated Pixabay Photo
   const handleFetchPixabayPhoto = async () => {
     setIsSearchingPixabay(true);
     setPixabayError(null);
     try {
-      const q = pixabayQuery.trim() || topic || brand.name;
+      const q = pixabayQuery.trim() || topic || brand?.name || 'architecture';
       const res = await fetch('/api/media/pixabay-photo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -130,7 +155,7 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          brand_key: brand.key,
+          brand_key: brand?.key,
           topic: `${selectedSubject} - ${topic}`,
           headline,
           aspect_ratio: aspectRatio,
@@ -165,9 +190,9 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const [accR, accG, accB] = brand.palette.accentRgb;
-    const [secR, secG, secB] = brand.palette.secondaryRgb;
-    const [bgR, bgG, bgB] = brand.palette.bgRgb;
+    const [accR, accG, accB] = brand?.palette?.accentRgb || [217, 119, 6];
+    const [secR, secG, secB] = brand?.palette?.secondaryRgb || [75, 85, 99];
+    const [bgR, bgG, bgB] = brand?.palette?.bgRgb || [15, 23, 42];
 
     let width = 600;
     let height = 600;
@@ -186,14 +211,14 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
     canvas.width = width;
     canvas.height = height;
 
-    // 1. Deep Monolithic Background Gradient
+    // Background Gradient
     const bgGrad = ctx.createLinearGradient(0, 0, width, height);
     bgGrad.addColorStop(0, `rgb(${bgR}, ${bgG}, ${bgB})`);
     bgGrad.addColorStop(1, `rgb(${Math.max(0, bgR - 10)}, ${Math.max(0, bgG - 10)}, ${Math.max(0, bgB - 10)})`);
     ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, width, height);
 
-    // 2. Chiaroscuro Directional Lighting Beam
+    // Chiaroscuro Directional Lighting Beam
     const beamGrad = ctx.createRadialGradient(
       width * 0.2,
       height * 0.25,
@@ -208,7 +233,7 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
     ctx.fillStyle = beamGrad;
     ctx.fillRect(0, 0, width, height);
 
-    // 3. Architectural grid lines
+    // Architectural grid lines
     ctx.strokeStyle = `rgba(${accR}, ${accG}, ${accB}, 0.08)`;
     ctx.lineWidth = 1;
     const gridStep = width / 12;
@@ -225,7 +250,7 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
       ctx.stroke();
     }
 
-    // 4. Geometric silhouettes representing subject
+    // Geometric silhouettes representing subject
     ctx.fillStyle = `rgba(${secR}, ${secG}, ${secB}, 0.25)`;
     ctx.beginPath();
     ctx.moveTo(width * 0.1, height * 0.9);
@@ -235,7 +260,7 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
     ctx.closePath();
     ctx.fill();
 
-    // 5. Crisp accent rim light edge
+    // Crisp accent rim light edge
     ctx.strokeStyle = `rgba(${accR}, ${accG}, ${accB}, 0.75)`;
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -244,18 +269,20 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
     ctx.lineTo(width * 0.85, height * 0.7);
     ctx.stroke();
 
-    // 6. Subtle analog film grain texture
-    const imgData = ctx.getImageData(0, 0, width, height);
-    const data = imgData.data;
-    for (let i = 0; i < data.length; i += 8) {
-      const noise = (Math.random() - 0.5) * 12;
-      data[i] = Math.min(255, Math.max(0, data[i] + noise));
-      data[i + 1] = Math.min(255, Math.max(0, data[i + 1] + noise));
-      data[i + 2] = Math.min(255, Math.max(0, data[i + 2] + noise));
-    }
-    ctx.putImageData(imgData, 0, 0);
+    // Analog film grain texture
+    try {
+      const imgData = ctx.getImageData(0, 0, width, height);
+      const data = imgData.data;
+      for (let i = 0; i < data.length; i += 8) {
+        const noise = (Math.random() - 0.5) * 12;
+        data[i] = Math.min(255, Math.max(0, data[i] + noise));
+        data[i + 1] = Math.min(255, Math.max(0, data[i + 1] + noise));
+        data[i + 2] = Math.min(255, Math.max(0, data[i + 2] + noise));
+      }
+      ctx.putImageData(imgData, 0, 0);
+    } catch {}
 
-    // 7. Vignette
+    // Vignette
     const vignette = ctx.createRadialGradient(
       width / 2,
       height / 2,
@@ -269,15 +296,15 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
     ctx.fillStyle = vignette;
     ctx.fillRect(0, 0, width, height);
 
-    // 8. Brand Watermark & Frame
+    // Frame
     ctx.strokeStyle = `rgba(${accR}, ${accG}, ${accB}, 0.3)`;
     ctx.lineWidth = 1;
     ctx.strokeRect(20, 20, width - 40, height - 40);
 
     // Brand Tag Top Left
-    ctx.fillStyle = brand.palette.accent;
+    ctx.fillStyle = accentColor;
     ctx.font = 'bold 12px "JetBrains Mono", monospace';
-    ctx.fillText(`${brand.name.toUpperCase()} • VISUAL DIRECTIVE`, 40, 50);
+    ctx.fillText(`${(brand?.name || 'Brand').toUpperCase()} • VISUAL DIRECTIVE`, 40, 50);
 
     // Aspect Ratio & ISO Stamp Top Right
     ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
@@ -286,7 +313,7 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
 
     // Headline Overlay Bottom
     if (headline) {
-      ctx.fillStyle = brand.palette.text;
+      ctx.fillStyle = textColor;
       ctx.font = 'bold 28px sans-serif';
       const cleanHeadline = headline.length > 40 ? headline.slice(0, 40) + '...' : headline;
       ctx.fillText(cleanHeadline, 40, height - 60);
@@ -301,7 +328,7 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
     if (viewMode === 'artistic_canvas') {
       renderArtisticCanvas();
     }
-  }, [aspectRatio, selectedSubject, brand.key, headline, viewMode]);
+  }, [aspectRatio, selectedSubject, brand?.key, headline, viewMode]);
 
   // Download Canvas as PNG
   const handleDownload = () => {
@@ -310,11 +337,18 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
     const url = canvas.toDataURL('image/png');
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${brand.key}-visual-${aspectRatio.replace(':', 'x')}.png`;
+    a.download = `${brand?.key || 'brand'}-visual-${aspectRatio.replace(':', 'x')}.png`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
   };
+
+  const allowedAspectRatios = brand?.pictureRules?.aspectRatios || ['1:1', '16:9', '9:16', '4:5'];
+  const permittedSubjectsList = brand?.pictureRules?.permittedSubjects || [
+    'Editorial Architecture',
+    'Sovereign Design',
+    'Corporate Realism',
+  ];
 
   return (
     <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-5 space-y-5">
@@ -324,7 +358,7 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
           <div className="flex items-center gap-2">
             <Camera className="w-4 h-4 text-amber-400" />
             <h3 className="text-sm font-bold text-white">
-              {brand.name} • Visual Generator & Stock Curator
+              {brand?.name} • Visual Generator & Stock Curator
             </h3>
             <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-neutral-900 text-emerald-400 border border-emerald-900/60 flex items-center gap-1 font-bold">
               <ShieldCheck className="w-3 h-3" />
@@ -421,7 +455,7 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
                 type="text"
                 value={pixabayQuery}
                 onChange={(e) => setPixabayQuery(e.target.value)}
-                placeholder={`Search editorial photo for ${brand.name}...`}
+                placeholder={`Search editorial photo for ${brand?.name}...`}
                 className="flex-1 bg-neutral-950 border border-neutral-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-amber-400 font-medium"
               />
               <button
@@ -549,7 +583,7 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
               </label>
               <div className="grid grid-cols-4 gap-2">
                 {(['1:1', '16:9', '9:16', '4:5'] as const).map((ar) => {
-                  const isAllowed = brand.pictureRules.aspectRatios.includes(ar);
+                  const isAllowed = allowedAspectRatios.includes(ar);
                   return (
                     <button
                       key={ar}
@@ -579,7 +613,7 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
               <label className="block text-xs font-semibold text-neutral-300 mb-1.5 flex items-center justify-between">
                 <span>Permitted Brand Subject Archetypes:</span>
                 <span className="text-[10px] text-emerald-400 font-mono">
-                  {brand.pictureRules.permittedSubjects.length} Approved Tropes
+                  {permittedSubjectsList.length} Approved Tropes
                 </span>
               </label>
               <select
@@ -587,7 +621,7 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
                 onChange={(e) => setSelectedSubject(e.target.value)}
                 className="w-full bg-neutral-900 border border-neutral-800 hover:border-neutral-700 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-amber-400"
               >
-                {brand.pictureRules.permittedSubjects.map((subject, idx) => (
+                {permittedSubjectsList.map((subject, idx) => (
                   <option key={idx} value={subject} className="bg-neutral-900 text-white">
                     {subject}
                   </option>
@@ -605,7 +639,7 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
                 type="text"
                 value={customDirective}
                 onChange={(e) => setCustomDirective(e.target.value)}
-                placeholder={`E.g., Directional warm rim light highlighting ${brand.palette.names.accent} tones...`}
+                placeholder={`E.g., Directional warm rim light highlighting ${accentName} tones...`}
                 className="w-full bg-neutral-900 border border-neutral-800 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-amber-400"
               />
             </div>
@@ -618,8 +652,8 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
                 disabled={isGenerating}
                 className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-lg disabled:opacity-50 text-neutral-950"
                 style={{
-                  backgroundColor: brand.palette.accent,
-                  boxShadow: `0 8px 20px -4px ${brand.palette.accent}30`,
+                  backgroundColor: accentColor,
+                  boxShadow: `0 8px 20px -4px ${accentColor}30`,
                 }}
               >
                 {isGenerating ? (
@@ -685,8 +719,8 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
                 />
               ) : (
                 <SocialCardCanvas
-                  brandKey={brand.key}
-                  headline={headline || `${brand.lexicon[0]} Protocol`}
+                  brandKey={brand?.key}
+                  headline={headline || `${defaultLexicon} Protocol`}
                   width={500}
                   height={500}
                   className="w-full max-w-[320px] aspect-square rounded-lg shadow-inner"
@@ -725,3 +759,4 @@ export const BrandPictureGenerator: React.FC<BrandPictureGeneratorProps> = ({
     </div>
   );
 };
+     
