@@ -36,6 +36,26 @@ export const besOutkastBrand: BrandConfig = {
       text: 'Archival White',
     },
   },
+  audiences: [
+    'C-Suite Executives, Presidents & Board Directors',
+    'Founders, Startups & Venture Capitalists',
+    'Market Money Managers & Vulture Capitalists',
+    'Policy Makers, Public Officials & Solution Providers',
+    'Entrepreneurs, Business Developers & Sales Leaders',
+    'Cybersecurity Practitioners & Enterprise Technologists',
+    'Small Business Owners & Commercial Operators',
+    'PhD Holders, Researchers & Sovereign Thinkers',
+  ],
+  demographics: {
+    education: '98% College Degree or Higher (Advanced Degrees & PhDs)',
+    householdIncome: '$100,000+ Baseline (Accredited & High-Net-Worth)',
+    genderAndAge: {
+      male: 'Ages 24–68',
+      female: 'Ages 35–55',
+    },
+    composition:
+      'High-discretionary executive readership spanning institutional finance, corporate governance, venture capital, clean-tech, cybersecurity, and public policy.',
+  },
   lexicon: [
     'For the love of the Dare',
     'Extreme lifestyle',
@@ -83,5 +103,5 @@ export const besOutkastBrand: BrandConfig = {
 };
 
 export default besOutkastBrand;
-
-
+  
+ 
