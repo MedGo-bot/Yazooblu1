@@ -140,6 +140,14 @@ export interface BrandColors {
   primary: string;
   secondary?: string;
   accent: string;
+  bg?: string;
+}
+
+export interface BrandPalette {
+  bg: string;
+  cardBg: string;
+  text: string;
+  accent: string;
 }
 
 export interface BrandConfig {
@@ -150,27 +158,50 @@ export interface BrandConfig {
   primaryChannels: SocialPlatform[];
   columns?: ColumnDesk[];
   colors: BrandColors;
-  archetype?: string;
-  posture?: string;
-  lexicon?: string[];
-  negativeConstraints?: string;
+  palette?: BrandPalette;
+  archetype: string;
+  posture: string;
+  lexicon: string[];
+  negativeConstraints: string;
   forbiddenWords?: string[];
-  audiences?: string[];
-  palette?: any;
+  audiences: string[];
   pictureRules?: any;
   videoRules?: any;
   logoDescription?: string;
-  sampleTopics?: string[];
+  sampleTopics: string[];
 }
 
-export const BRANDS: Record<string, BrandConfig> = ALL_BRANDS.reduce((acc, brand) => {
-  acc[brand.key] = brand;
+// Safely map ALL_BRANDS into BRANDS dictionary while normalizing colors/palette
+export const BRANDS: Record<string, BrandConfig> = (ALL_BRANDS || []).reduce((acc, brand) => {
+  if (!brand || !brand.key) return acc;
+
+  // Ensure both colors and palette exist to prevent UI rendering crashes
+  const colors = brand.colors || { primary: '#171717', accent: '#f59e0b', bg: '#0a0a0a' };
+  const palette = brand.palette || {
+    bg: colors.bg || '#0a0a0a',
+    cardBg: '#171717',
+    text: '#ffffff',
+    accent: colors.accent || '#f59e0b',
+  };
+
+  acc[brand.key] = {
+    ...brand,
+    colors,
+    palette,
+    archetype: brand.archetype || 'Sovereign Leader',
+    posture: brand.posture || 'Authoritative & Strategic',
+    lexicon: Array.isArray(brand.lexicon) ? brand.lexicon : ['Leadership', 'Disruption'],
+    negativeConstraints: brand.negativeConstraints || 'Avoid hype and empty buzzwords.',
+    audiences: Array.isArray(brand.audiences) && brand.audiences.length > 0 ? brand.audiences : ['Executive Leadership'],
+    sampleTopics: Array.isArray(brand.sampleTopics) && brand.sampleTopics.length > 0 ? brand.sampleTopics : ['Strategic Leadership'],
+  };
   return acc;
 }, {} as Record<string, BrandConfig>);
 
 export interface ProductionPackage {
   id: string;
   brand_key: BrandKey;
+  brandKey?: BrandKey; // Alias for camelCase lookups in UI
   brand_name: string;
   channel: Channel;
   audience: string;
@@ -179,8 +210,11 @@ export interface ProductionPackage {
   hook_options: string[];
   selected_hook?: string;
   post_body: string;
+  socialCopy?: string; // Alias for UI components
   voiceover_script: string;
+  voiceoverScript?: string; // Alias for UI components
   visual_headline: string;
+  cardText?: string; // Alias for UI components
   image_prompt: string;
   image_card_data?: string;
   photo_url?: string;
@@ -194,10 +228,7 @@ export interface ProductionPackage {
   scheduled_at?: string;
 }
 
-// ==========================================
-// Hook Library Definitions & Exports
-// ==========================================
-
+// Hook Library Definitions
 export interface HookTemplate {
   id?: number;
   channel_key: string;
@@ -208,8 +239,5 @@ export interface HookTemplate {
 
 export const HOOK_LIBRARY: HookTemplate[] = [];
 
-// ==========================================
 // Editorial Constraint Fallbacks
-// ==========================================
-
-export const FORBIDDEN_UNIVERSAL_WORDS: string[] = [];
+export const FORBIDDEN_UNIVERSAL_WORDS: string[] = ['synergy', 'game-changer', 'unprecedented', 'paradigm shift'];
