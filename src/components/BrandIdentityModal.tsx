@@ -1,16 +1,13 @@
 import React, { useState } from 'react';
-import { BrandMeta, BRANDS, BrandKey } from '../types';
+import { BrandConfig, BRANDS, BrandKey } from '../types';
 import { BrandLogo } from './BrandLogo';
 import {
   X,
   Copy,
   Check,
-  Download,
   Palette,
   Camera,
   Film,
-  Sparkles,
-  BookOpen,
 } from 'lucide-react';
 
 interface BrandIdentityModalProps {
@@ -25,9 +22,9 @@ export const BrandIdentityModal: React.FC<BrandIdentityModalProps> = ({
   brandKey,
 }) => {
   const [copiedColor, setCopiedColor] = useState<string | null>(null);
-  const brand: BrandMeta = BRANDS[brandKey];
+  const brand: BrandConfig = BRANDS[brandKey];
 
-  if (!isOpen) return null;
+  if (!isOpen || !brand) return null;
 
   const handleCopy = (colorName: string, hex: string) => {
     navigator.clipboard.writeText(hex);
@@ -35,30 +32,42 @@ export const BrandIdentityModal: React.FC<BrandIdentityModalProps> = ({
     setTimeout(() => setCopiedColor(null), 2000);
   };
 
+  const palette = brand.palette || {
+    names: { accent: 'Accent', secondary: 'Secondary', bg: 'Background', text: 'Text' },
+    accent: brand.colors?.accent || '#D97706',
+    accentRgb: [217, 119, 6],
+    secondary: brand.colors?.secondary || '#4B5563',
+    secondaryRgb: [75, 85, 99],
+    bg: brand.colors?.primary || '#111827',
+    bgRgb: [17, 24, 39],
+    text: '#F8FAFC',
+    textRgb: [248, 250, 252],
+  };
+
   const paletteEntries = [
     {
-      name: brand.palette.names.accent,
+      name: palette.names?.accent || 'Primary Accent',
       role: 'Primary Accent & Emblems',
-      hex: brand.palette.accent,
-      rgb: `rgb(${brand.palette.accentRgb.join(', ')})`,
+      hex: palette.accent,
+      rgb: `rgb(${palette.accentRgb?.join(', ') || '217, 119, 6'})`,
     },
     {
-      name: brand.palette.names.secondary,
+      name: palette.names?.secondary || 'Secondary Accent',
       role: 'Secondary Depth & Monogram',
-      hex: brand.palette.secondary,
-      rgb: `rgb(${brand.palette.secondaryRgb.join(', ')})`,
+      hex: palette.secondary,
+      rgb: `rgb(${palette.secondaryRgb?.join(', ') || '75, 85, 99'})`,
     },
     {
-      name: brand.palette.names.bg,
+      name: palette.names?.bg || 'Base Background',
       role: 'Base Mat & Monolith Void',
-      hex: brand.palette.bg,
-      rgb: `rgb(${brand.palette.bgRgb.join(', ')})`,
+      hex: palette.bg,
+      rgb: `rgb(${palette.bgRgb?.join(', ') || '17, 24, 39'})`,
     },
     {
-      name: brand.palette.names.text,
+      name: palette.names?.text || 'Headline Text',
       role: 'Newsprint & Typography',
-      hex: brand.palette.text,
-      rgb: `rgb(${brand.palette.textRgb.join(', ')})`,
+      hex: palette.text,
+      rgb: `rgb(${palette.textRgb?.join(', ') || '248, 250, 252'})`,
     },
   ];
 
@@ -71,12 +80,12 @@ export const BrandIdentityModal: React.FC<BrandIdentityModalProps> = ({
     >
       <div
         className="relative w-full max-w-4xl max-h-[92vh] flex flex-col bg-neutral-950 border rounded-2xl shadow-2xl overflow-hidden"
-        style={{ borderColor: `${brand.palette.accent}50` }}
+        style={{ borderColor: `${palette.accent}50` }}
       >
         {/* Header */}
         <div
           className="flex items-center justify-between px-6 py-4 border-b border-neutral-800 bg-neutral-900/60"
-          style={{ borderBottomColor: `${brand.palette.accent}30` }}
+          style={{ borderBottomColor: `${palette.accent}30` }}
         >
           <div className="flex items-center gap-3">
             <BrandLogo brandKey={brandKey} size="sm" />
@@ -85,8 +94,8 @@ export const BrandIdentityModal: React.FC<BrandIdentityModalProps> = ({
                 <span
                   className="text-[10px] font-mono uppercase px-2 py-0.5 rounded font-bold"
                   style={{
-                    backgroundColor: `${brand.palette.accent}25`,
-                    color: brand.palette.accent,
+                    backgroundColor: `${palette.accent}25`,
+                    color: palette.accent,
                   }}
                 >
                   Official Brand Identity
@@ -137,10 +146,10 @@ export const BrandIdentityModal: React.FC<BrandIdentityModalProps> = ({
                   Brand Archetype & Stature
                 </span>
                 <h3 className="text-base font-bold text-white mt-0.5">
-                  {brand.archetype}
+                  {brand.archetype || 'Sovereign Brand Portfolio'}
                 </h3>
                 <p className="text-xs text-neutral-300 mt-1 leading-relaxed">
-                  {brand.posture}
+                  {brand.posture || brand.description}
                 </p>
               </div>
 
@@ -154,25 +163,29 @@ export const BrandIdentityModal: React.FC<BrandIdentityModalProps> = ({
               )}
 
               {/* Negative Constraint */}
-              <div className="p-3 rounded-xl bg-red-950/20 border border-red-900/30 text-xs">
-                <span className="text-[10px] font-mono uppercase text-red-400 font-bold block mb-0.5">
-                  Absolute Negative Constraint:
-                </span>
-                <p className="text-red-200/90 leading-snug">
-                  {brand.negativeConstraints}
-                </p>
-                <div className="mt-1.5 flex flex-wrap gap-1">
-                  <span className="text-[10px] text-neutral-500 font-mono">Forbidden words:</span>
-                  {brand.forbiddenWords.map((word) => (
-                    <span
-                      key={word}
-                      className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-neutral-900 text-red-300 line-through"
-                    >
-                      {word}
-                    </span>
-                  ))}
+              {brand.negativeConstraints && (
+                <div className="p-3 rounded-xl bg-red-950/20 border border-red-900/30 text-xs">
+                  <span className="text-[10px] font-mono uppercase text-red-400 font-bold block mb-0.5">
+                    Absolute Negative Constraint:
+                  </span>
+                  <p className="text-red-200/90 leading-snug">
+                    {brand.negativeConstraints}
+                  </p>
+                  {(brand.forbiddenWords || []).length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      <span className="text-[10px] text-neutral-500 font-mono">Forbidden words:</span>
+                      {brand.forbiddenWords!.map((word) => (
+                        <span
+                          key={word}
+                          className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral-900 text-red-300 line-through"
+                        >
+                          {word}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
+              )}
             </div>
           </div>
 
@@ -230,116 +243,134 @@ export const BrandIdentityModal: React.FC<BrandIdentityModalProps> = ({
           {/* Picture & Video Generator Rules for this Brand */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Picture Generator Rules */}
-            <div className="p-4 rounded-xl bg-neutral-900/50 border border-neutral-800 space-y-3">
-              <div className="flex items-center gap-2 pb-2 border-b border-neutral-800">
-                <Camera className="w-4 h-4 text-emerald-400" />
-                <h4 className="text-xs font-bold text-white uppercase tracking-wider">
-                  Picture Generator Rules
-                </h4>
-              </div>
-              <div className="space-y-2 text-xs">
-                <div>
-                  <span className="text-[10px] font-mono text-neutral-500 uppercase block">
-                    Aesthetic Directive:
-                  </span>
-                  <p className="text-neutral-300 leading-snug">
-                    {brand.pictureRules.aestheticStyle}
-                  </p>
+            {brand.pictureRules && (
+              <div className="p-4 rounded-xl bg-neutral-900/50 border border-neutral-800 space-y-3">
+                <div className="flex items-center gap-2 pb-2 border-b border-neutral-800">
+                  <Camera className="w-4 h-4 text-emerald-400" />
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                    Picture Generator Rules
+                  </h4>
                 </div>
-                <div>
-                  <span className="text-[10px] font-mono text-neutral-500 uppercase block">
-                    Lighting & Prime Camera:
-                  </span>
-                  <p className="text-neutral-300 leading-snug">
-                    {brand.pictureRules.lightingAndCamera}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-[10px] font-mono text-neutral-500 uppercase block">
-                    Supported Aspect Ratios:
-                  </span>
-                  <div className="flex gap-1.5 mt-1">
-                    {brand.pictureRules.aspectRatios.map((ar) => (
-                      <span
-                        key={ar}
-                        className="text-[10px] font-mono px-2 py-0.5 rounded bg-neutral-950 border border-neutral-800 text-neutral-300"
-                      >
-                        {ar}
+                <div className="space-y-2 text-xs">
+                  {brand.pictureRules.aestheticStyle && (
+                    <div>
+                      <span className="text-[10px] font-mono text-neutral-500 uppercase block">
+                        Aesthetic Directive:
                       </span>
-                    ))}
-                  </div>
+                      <p className="text-neutral-300 leading-snug">
+                        {brand.pictureRules.aestheticStyle}
+                      </p>
+                    </div>
+                  )}
+                  {brand.pictureRules.lightingAndCamera && (
+                    <div>
+                      <span className="text-[10px] font-mono text-neutral-500 uppercase block">
+                        Lighting & Prime Camera:
+                      </span>
+                      <p className="text-neutral-300 leading-snug">
+                        {brand.pictureRules.lightingAndCamera}
+                      </p>
+                    </div>
+                  )}
+                  {brand.pictureRules.aspectRatios && (
+                    <div>
+                      <span className="text-[10px] font-mono text-neutral-500 uppercase block">
+                        Supported Aspect Ratios:
+                      </span>
+                      <div className="flex gap-1.5 mt-1">
+                        {brand.pictureRules.aspectRatios.map((ar: string) => (
+                          <span
+                            key={ar}
+                            className="text-[10px] font-mono px-2 py-0.5 rounded bg-neutral-950 border border-neutral-800 text-neutral-300"
+                          >
+                            {ar}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Video Generator Rules */}
-            <div className="p-4 rounded-xl bg-neutral-900/50 border border-neutral-800 space-y-3">
-              <div className="flex items-center gap-2 pb-2 border-b border-neutral-800">
-                <Film className="w-4 h-4 text-blue-400" />
-                <h4 className="text-xs font-bold text-white uppercase tracking-wider">
-                  Video Generator Rules
-                </h4>
-              </div>
-              <div className="space-y-2 text-xs">
-                <div>
-                  <span className="text-[10px] font-mono text-neutral-500 uppercase block">
-                    Pacing & Motion:
-                  </span>
-                  <p className="text-neutral-300 leading-snug">
-                    {brand.videoRules.pacingDirective}
-                  </p>
+            {brand.videoRules && (
+              <div className="p-4 rounded-xl bg-neutral-900/50 border border-neutral-800 space-y-3">
+                <div className="flex items-center gap-2 pb-2 border-b border-neutral-800">
+                  <Film className="w-4 h-4 text-blue-400" />
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                    Video Generator Rules
+                  </h4>
                 </div>
-                <div>
-                  <span className="text-[10px] font-mono text-neutral-500 uppercase block">
-                    Audio Bed Atmosphere:
-                  </span>
-                  <p className="text-neutral-300 leading-snug">
-                    {brand.videoRules.audioBedAtmosphere}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-[10px] font-mono text-neutral-500 uppercase block">
-                    Duration & Format:
-                  </span>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-neutral-950 border border-neutral-800 text-neutral-300">
-                      {brand.videoRules.defaultDurationSec}s target
-                    </span>
-                    {brand.videoRules.aspectRatios.map((ar) => (
-                      <span
-                        key={ar}
-                        className="text-[10px] font-mono px-2 py-0.5 rounded bg-neutral-950 border border-neutral-800 text-neutral-300"
-                      >
-                        {ar}
+                <div className="space-y-2 text-xs">
+                  {brand.videoRules.pacingDirective && (
+                    <div>
+                      <span className="text-[10px] font-mono text-neutral-500 uppercase block">
+                        Pacing & Motion:
                       </span>
-                    ))}
+                      <p className="text-neutral-300 leading-snug">
+                        {brand.videoRules.pacingDirective}
+                      </p>
+                    </div>
+                  )}
+                  {brand.videoRules.audioBedAtmosphere && (
+                    <div>
+                      <span className="text-[10px] font-mono text-neutral-500 uppercase block">
+                        Audio Bed Atmosphere:
+                      </span>
+                      <p className="text-neutral-300 leading-snug">
+                        {brand.videoRules.audioBedAtmosphere}
+                      </p>
+                    </div>
+                  )}
+                  <div>
+                    <span className="text-[10px] font-mono text-neutral-500 uppercase block">
+                      Duration & Format:
+                    </span>
+                    <div className="flex items-center gap-2 mt-1">
+                      {brand.videoRules.defaultDurationSec && (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-neutral-950 border border-neutral-800 text-neutral-300">
+                          {brand.videoRules.defaultDurationSec}s target
+                        </span>
+                      )}
+                      {(brand.videoRules.aspectRatios || []).map((ar: string) => (
+                        <span
+                          key={ar}
+                          className="text-[10px] font-mono px-2 py-0.5 rounded bg-neutral-950 border border-neutral-800 text-neutral-300"
+                        >
+                          {ar}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Lexicon Vocabulary Anchors */}
-          <div className="p-4 rounded-xl bg-neutral-900/40 border border-neutral-800">
-            <span className="text-[10px] font-mono uppercase text-neutral-500 block mb-2">
-              Mandatory Brand Lexicon Anchors:
-            </span>
-            <div className="flex flex-wrap gap-1.5">
-              {brand.lexicon.map((term) => (
-                <span
-                  key={term}
-                  className="text-xs px-2.5 py-1 rounded-lg border font-mono font-medium"
-                  style={{
-                    backgroundColor: `${brand.palette.accent}12`,
-                    borderColor: `${brand.palette.accent}30`,
-                    color: brand.palette.accent,
-                  }}
-                >
-                  {term}
-                </span>
-              ))}
+          {(brand.lexicon || []).length > 0 && (
+            <div className="p-4 rounded-xl bg-neutral-900/40 border border-neutral-800">
+              <span className="text-[10px] font-mono uppercase text-neutral-500 block mb-2">
+                Mandatory Brand Lexicon Anchors:
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {brand.lexicon!.map((term) => (
+                  <span
+                    key={term}
+                    className="text-xs px-2.5 py-1 rounded-lg border font-mono font-medium"
+                    style={{
+                      backgroundColor: `${palette.accent}12`,
+                      borderColor: `${palette.accent}30`,
+                      color: palette.accent,
+                    }}
+                  >
+                    {term}
+                  </span>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Modal Footer */}
@@ -359,3 +390,5 @@ export const BrandIdentityModal: React.FC<BrandIdentityModalProps> = ({
     </div>
   );
 };
+
+export default BrandIdentityModal;
