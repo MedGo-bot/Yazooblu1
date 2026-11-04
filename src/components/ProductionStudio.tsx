@@ -73,16 +73,18 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
     }
     return 'fyrrion';
   });
-  const brand = BRANDS[selectedBrandKey];
+
+  const brand = BRANDS[selectedBrandKey] || BRANDS['fyrrion'];
 
   const [selectedAudience, setSelectedAudience] = useState<string>(() => {
     if (
       initialSaved?.selectedAudience &&
+      Array.isArray(brand?.audiences) &&
       brand.audiences.includes(initialSaved.selectedAudience)
     ) {
       return initialSaved.selectedAudience;
     }
-    return brand.audiences[0];
+    return brand?.audiences?.[0] || 'Enterprise Leadership';
   });
 
   const [selectedChannel, setSelectedChannel] = useState<Channel>(() => {
@@ -96,7 +98,7 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
     if (typeof initialSaved?.topic === 'string' && initialSaved.topic.trim().length > 0) {
       return initialSaved.topic;
     }
-    return brand.sampleTopics[0];
+    return brand?.sampleTopics?.[0] || 'Strategic Leadership & Market Disruption';
   });
 
   const [isHookModalOpen, setIsHookModalOpen] = useState(false);
@@ -106,12 +108,16 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
     }
     return null;
   });
+
   const [autoSaveState, setAutoSaveState] = useState<'saved' | 'saving' | 'idle'>(() => {
     return initialSaved?.timestamp ? 'saved' : 'idle';
   });
+
   const [showRestoredNotice, setShowRestoredNotice] = useState<boolean>(() => {
-    return !!(initialSaved && initialSaved.topic && initialSaved.topic !== brand.sampleTopics[0]);
+    return !!(initialSaved && initialSaved.topic && initialSaved.topic !== brand?.sampleTopics?.[0]);
   });
+
+  const [copiedScript, setCopiedScript] = useState(false);
 
   // Sync when initialTopic or initialChannel change from external props
   useEffect(() => {
@@ -177,7 +183,6 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
 
     return () => {
       clearInterval(timer);
-      // Ensure latest progress is saved immediately on navigation / unmount
       saveDraftToStorage();
     };
   }, [saveDraftToStorage]);
@@ -201,9 +206,9 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
     }
     const defaultBrand = BRANDS['fyrrion'];
     setSelectedBrandKey('fyrrion');
-    setSelectedAudience(defaultBrand.audiences[0]);
+    setSelectedAudience(defaultBrand?.audiences?.[0] || '');
     setSelectedChannel('LinkedIn');
-    setTopic(defaultBrand.sampleTopics[0]);
+    setTopic(defaultBrand?.sampleTopics?.[0] || '');
     setLastSavedTime(null);
     setAutoSaveState('idle');
     setShowRestoredNotice(false);
@@ -218,8 +223,10 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
   const handleBrandChange = (newKey: BrandKey) => {
     setSelectedBrandKey(newKey);
     const newBrand = BRANDS[newKey];
-    setSelectedAudience(newBrand.audiences[0]);
-    setTopic(newBrand.sampleTopics[0]);
+    if (newBrand) {
+      setSelectedAudience(newBrand.audiences?.[0] || '');
+      setTopic(newBrand.sampleTopics?.[0] || '');
+    }
     setShowRestoredNotice(false);
     setAiSuggestions([]);
     setAuditResult(null);
@@ -249,9 +256,10 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
           audience: selectedAudience,
         }),
       });
-      if (res.ok) {
+      const contentType = res.headers.get('content-type');
+      if (res.ok && contentType && contentType.includes('application/json')) {
         const data = await res.json();
-        if (Array.isArray(data.topics)) {
+        if (Array.isArray(data?.topics)) {
           setAiSuggestions(data.topics);
         }
       }
@@ -275,9 +283,10 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
           text: topic,
         }),
       });
-      if (res.ok) {
+      const contentType = res.headers.get('content-type');
+      if (res.ok && contentType && contentType.includes('application/json')) {
         const data = await res.json();
-        setAuditResult(data.result);
+        if (data?.result) setAuditResult(data.result);
       }
     } catch (e) {
       console.error('Audit failed:', e);
@@ -317,15 +326,16 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
       clearTimeout(timer1);
       clearTimeout(timer2);
 
-      if (!response.ok) {
-        throw new Error(`Generation error: ${response.statusText}`);
+      const contentType = response.headers.get('content-type');
+      if (!response.ok || !contentType || !contentType.includes('application/json')) {
+        throw new Error(`Generation endpoint unavailable (${response.status})`);
       }
 
       const data = await response.json();
       setPipelineStep(4);
       setStatusMessage('Production Package complete and routed to Human Approval Queue!');
 
-      if (data.draft) {
+      if (data?.draft) {
         onDraftCreated(data.draft);
       }
     } catch (err: any) {
@@ -337,6 +347,12 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
         setPipelineStep(0);
       }, 1200);
     }
+  };
+
+  const handleCopyText = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedScript(true);
+    setTimeout(() => setCopiedScript(false), 2000);
   };
 
   return (
@@ -358,7 +374,7 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
                 </p>
               </div>
             </div>
-            
+
             {/* Auto-save status indicator & reset action */}
             <div className="flex items-center gap-2">
               <div
@@ -435,6 +451,7 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
               {(Object.keys(BRANDS) as BrandKey[]).map((key) => {
                 const b = BRANDS[key];
+                if (!b) return null;
                 const isSelected = selectedBrandKey === key;
                 return (
                   <button
@@ -450,18 +467,18 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
                     <div className="flex items-center gap-2 mb-1">
                       <span
                         className="w-2.5 h-2.5 rounded-full inline-block"
-                        style={{ backgroundColor: b.palette.accent }}
+                        style={{ backgroundColor: b?.palette?.accent || '#f59e0b' }}
                       />
                       <span
                         className={`text-xs font-bold truncate ${
                           isSelected ? 'text-white' : 'text-neutral-300'
                         }`}
                       >
-                        {b.name.split(' ')[0]}
+                        {b?.name?.split(' ')?.[0] || key}
                       </span>
                     </div>
                     <div className="text-[10px] text-neutral-400 truncate font-mono">
-                      {b.archetype.split('/')[0]}
+                      {b?.archetype?.split('/')?.[0] || 'Persona'}
                     </div>
                   </button>
                 );
@@ -470,45 +487,48 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
           </div>
 
           {/* Active Brand Voice Banner */}
-          <div
-            className="p-3.5 rounded-xl border mb-5 text-xs transition"
-            style={{
-              backgroundColor: `${brand.palette.bg}dd`,
-              borderColor: `${brand.palette.accent}40`,
-            }}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <span className="font-mono font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                  <span
-                    className="w-2 h-2 rounded-full"
-                    style={{ backgroundColor: brand.palette.accent }}
-                  />
-                  {brand.name}
-                  <span className="text-[10px] font-normal text-neutral-300/80 px-2 py-0.5 rounded bg-black/40">
-                    {brand.archetype}
-                  </span>
-                </span>
-                <p className="mt-1.5 text-neutral-300 leading-relaxed text-[11px]">
-                  <strong className="text-white">Posture:</strong> {brand.posture}
-                </p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {brand.lexicon.map((term, i) => (
+          {brand && (
+            <div
+              className="p-3.5 rounded-xl border mb-5 text-xs transition"
+              style={{
+                backgroundColor: `${brand?.palette?.bg || '#171717'}dd`,
+                borderColor: `${brand?.palette?.accent || '#f59e0b'}40`,
+              }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <span className="font-mono font-bold text-white uppercase tracking-wider flex items-center gap-2">
                     <span
-                      key={i}
-                      className="px-2 py-0.5 rounded text-[10px] font-mono bg-black/40 text-neutral-200 border border-white/10"
-                    >
-                      +{term}
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: brand?.palette?.accent || '#f59e0b' }}
+                    />
+                    {brand.name}
+                    <span className="text-[10px] font-normal text-neutral-300/80 px-2 py-0.5 rounded bg-black/40">
+                      {brand.archetype}
                     </span>
-                  ))}
+                  </span>
+                  <p className="mt-1.5 text-neutral-300 leading-relaxed text-[11px]">
+                    <strong className="text-white">Posture:</strong> {brand.posture}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {Array.isArray(brand.lexicon) &&
+                      brand.lexicon.filter(Boolean).map((term, i) => (
+                        <span
+                          key={i}
+                          className="px-2 py-0.5 rounded text-[10px] font-mono bg-black/40 text-neutral-200 border border-white/10"
+                        >
+                          +{term}
+                        </span>
+                      ))}
+                  </div>
                 </div>
               </div>
+              <div className="mt-2.5 pt-2 border-t border-white/10 flex items-center gap-2 text-[10px] text-rose-300 font-mono">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+                <span>Negative constraint: {brand.negativeConstraints}</span>
+              </div>
             </div>
-            <div className="mt-2.5 pt-2 border-t border-white/10 flex items-center gap-2 text-[10px] text-rose-300 font-mono">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
-              <span>Negative constraint: {brand.negativeConstraints}</span>
-            </div>
-          </div>
+          )}
 
           {/* Form Fields: Audience & Channel */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
@@ -521,11 +541,12 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
                 onChange={(e) => setSelectedAudience(e.target.value)}
                 className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-amber-400/50 cursor-pointer"
               >
-                {brand.audiences.map((aud, idx) => (
-                  <option key={idx} value={aud}>
-                    {aud}
-                  </option>
-                ))}
+                {Array.isArray(brand?.audiences) &&
+                  brand.audiences.filter(Boolean).map((aud, idx) => (
+                    <option key={idx} value={aud}>
+                      {aud}
+                    </option>
+                  ))}
               </select>
             </div>
 
@@ -573,7 +594,7 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
                   type="button"
                   onClick={handleBrainstormAngles}
                   disabled={isBrainstorming}
-                  title="Generate fresh, high-impact editorial angles tailored to this persona and audience using Gemini 3.8 Flash"
+                  title="Generate fresh, high-impact editorial angles tailored to this persona and audience"
                   className="text-xs font-mono text-purple-300 hover:text-purple-200 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 transition cursor-pointer disabled:opacity-50"
                 >
                   {isBrainstorming ? (
@@ -587,7 +608,7 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
                   type="button"
                   onClick={handleRunAudit}
                   disabled={isAuditing || !topic.trim()}
-                  title="Run real-time Gemini voice and negative constraint compliance audit"
+                  title="Run real-time voice and negative constraint compliance audit"
                   className="text-xs font-mono text-emerald-300 hover:text-emerald-200 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 transition cursor-pointer disabled:opacity-50"
                 >
                   {isAuditing ? (
@@ -628,12 +649,12 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
             />
 
             {/* AI Brainstormed Angles Display */}
-            {aiSuggestions.length > 0 && (
+            {Array.isArray(aiSuggestions) && aiSuggestions.length > 0 && (
               <div className="p-3 rounded-xl bg-purple-950/30 border border-purple-800/50 space-y-2">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-mono text-[11px] text-purple-300 font-semibold flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                    Gemini 3.8 Flash Proposed Angles:
+                    Proposed Editorial Angles:
                   </span>
                   <button
                     type="button"
@@ -644,7 +665,7 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
                   </button>
                 </div>
                 <div className="grid grid-cols-1 gap-1.5">
-                  {aiSuggestions.map((sugg, idx) => (
+                  {aiSuggestions.filter(Boolean).map((sugg, idx) => (
                     <button
                       key={idx}
                       type="button"
@@ -666,11 +687,13 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
 
             {/* AI Pre-flight Audit Result */}
             {auditResult && (
-              <div className={`p-3 rounded-xl border text-xs space-y-1.5 ${
-                auditResult.verdict === 'COMPLIANT'
-                  ? 'bg-emerald-950/30 border-emerald-800/50 text-emerald-200'
-                  : 'bg-rose-950/30 border-rose-800/50 text-rose-200'
-              }`}>
+              <div
+                className={`p-3 rounded-xl border text-xs space-y-1.5 ${
+                  auditResult.verdict === 'COMPLIANT'
+                    ? 'bg-emerald-950/30 border-emerald-800/50 text-emerald-200'
+                    : 'bg-rose-950/30 border-rose-800/50 text-rose-200'
+                }`}
+              >
                 <div className="flex items-center justify-between">
                   <span className="font-mono text-[11px] font-bold flex items-center gap-1.5">
                     <ShieldCheck className="w-3.5 h-3.5" />
@@ -685,11 +708,12 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
                   </button>
                 </div>
                 <p className="text-[11px] opacity-90">{auditResult.critique}</p>
-                {auditResult.identified_violations.length > 0 && (
-                  <div className="text-[10px] font-mono text-rose-300">
-                    Flagged: {auditResult.identified_violations.join('; ')}
-                  </div>
-                )}
+                {Array.isArray(auditResult.identified_violations) &&
+                  auditResult.identified_violations.length > 0 && (
+                    <div className="text-[10px] font-mono text-rose-300">
+                      Flagged: {auditResult.identified_violations.join('; ')}
+                    </div>
+                  )}
                 {auditResult.surgical_rewrite && auditResult.surgical_rewrite !== topic && (
                   <div className="pt-1.5 border-t border-neutral-800/60 flex items-center justify-between gap-2">
                     <span className="text-[11px] text-neutral-300 italic truncate">
@@ -708,26 +732,28 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
             )}
 
             {/* Quick Angle Prompts for this Brand */}
-            <div>
-              <span className="text-[10px] font-mono text-neutral-400 block mb-1.5">
-                Brand Core Archetype Anchors:
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {brand.sampleTopics.map((sample, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => setTopic(sample)}
-                    className="text-[11px] px-2.5 py-1 rounded-lg bg-neutral-950 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 hover:border-neutral-700 transition text-left cursor-pointer"
-                  >
-                    {sample.slice(0, 52)}...
-                  </button>
-                ))}
+            {Array.isArray(brand?.sampleTopics) && (
+              <div>
+                <span className="text-[10px] font-mono text-neutral-400 block mb-1.5">
+                  Brand Core Archetype Anchors:
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {brand.sampleTopics.filter(Boolean).map((sample, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setTopic(sample)}
+                      className="text-[11px] px-2.5 py-1 rounded-lg bg-neutral-950 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 hover:border-neutral-700 transition text-left cursor-pointer"
+                    >
+                      {sample.slice(0, 52)}...
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
-          {/* Agent Pipeline Progress Indicator (when generating) */}
+          {/* Agent Pipeline Progress Indicator */}
           {isGenerating && (
             <div className="p-3.5 rounded-xl bg-neutral-950 border border-amber-500/30 mb-5 animate-pulse">
               <div className="flex items-center justify-between text-xs mb-2">
@@ -782,148 +808,104 @@ export const ProductionStudio: React.FC<ProductionStudioProps> = ({
           <div className="flex items-center justify-between pb-4 mb-4 border-b border-neutral-800">
             <div className="flex items-center gap-2">
               <div className="p-1.5 bg-emerald-500/10 text-emerald-400 rounded-lg">
-                <CheckCircle2 className="w-4 h-4" />
+                <Bot className="w-4 h-4" />
               </div>
               <h3 className="text-sm font-bold text-white tracking-wide">
-                Latest Generation Snapshot
+                2. Live Production Preview
               </h3>
             </div>
             {latestDraft && (
               <button
+                type="button"
                 onClick={onNavigateToQueue}
-                className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1 font-medium transition cursor-pointer"
+                className="text-xs font-mono text-amber-400 hover:text-amber-300 flex items-center gap-1"
               >
-                Go to Approval Queue <ChevronRight className="w-3.5 h-3.5" />
+                Approval Queue <ChevronRight className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
 
           {latestDraft ? (
             <div className="space-y-4">
-              {/* Brand and platform header */}
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-xs font-bold text-white px-2.5 py-1 rounded-md bg-neutral-950 border border-neutral-800 flex items-center gap-2">
-                  <span
-                    className="w-2 h-2 rounded-full"
-                    style={{
-                      backgroundColor:
-                        BRANDS[latestDraft.brand_key]?.palette.accent || '#fff',
-                    }}
-                  />
-                  {latestDraft.brand_name.toUpperCase()}
-                </span>
-                <span className="text-xs font-mono text-neutral-400">
-                  Channel: <strong className="text-white">{latestDraft.channel}</strong>
-                </span>
-              </div>
-
-              {/* Social Card Graphic Canvas */}
-              <div className="flex justify-center py-2">
-                <SocialCardCanvas
-                  brandKey={latestDraft.brand_key}
-                  headline={latestDraft.visual_headline}
-                />
-              </div>
-
-              {/* Hooks Options */}
-              <div className="rounded-xl bg-neutral-950 border border-neutral-800 p-3.5">
-                <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider block mb-2 font-mono">
-                  Hook Options ({latestDraft.hook_options.length})
-                </span>
-                <div className="space-y-2 text-xs">
-                  {latestDraft.hook_options.map((hook, i) => (
-                    <div
-                      key={i}
-                      className="p-2.5 rounded-lg bg-neutral-900/80 border border-neutral-800 text-neutral-200 font-sans leading-snug flex items-start gap-2"
-                    >
-                      <span className="text-amber-400 font-mono text-[10px] shrink-0 mt-0.5">
-                        #{i + 1}
-                      </span>
-                      <span>{hook}</span>
-                    </div>
-                  ))}
+              {/* Draft Identity Header */}
+              <div className="p-3 rounded-xl bg-neutral-950 border border-neutral-800 flex items-center justify-between text-xs">
+                <div>
+                  <span className="font-mono text-neutral-400 block text-[10px]">Active Package ID</span>
+                  <span className="font-mono text-amber-400 font-bold">{latestDraft.id}</span>
+                </div>
+                <div className="text-right">
+                  <span className="font-mono text-neutral-400 block text-[10px]">Channel Target</span>
+                  <span className="font-mono text-white font-bold">{latestDraft.channel}</span>
                 </div>
               </div>
 
-              {/* Post Body Preview */}
-              <div className="rounded-xl bg-neutral-950 border border-neutral-800 p-3.5">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider font-mono">
-                    Platform Body ({latestDraft.channel})
-                  </span>
-                  <div className="flex items-center gap-1.5 font-mono text-[10px]">
-                    <span className="text-neutral-400">
-                      {latestDraft.post_body.length} chars
-                    </span>
-                    {CHANNEL_SPECS[latestDraft.channel]?.charLimit && (
-                      <span
-                        className={`px-1.5 py-0.2 rounded font-bold ${
-                          latestDraft.post_body.length <=
-                          (CHANNEL_SPECS[latestDraft.channel]?.charLimit || 0)
-                            ? 'bg-emerald-500/20 text-emerald-300'
-                            : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                        }`}
-                      >
-                        {latestDraft.post_body.length <=
-                        (CHANNEL_SPECS[latestDraft.channel]?.charLimit || 0)
-                          ? `✓ Compliant (≤${CHANNEL_SPECS[latestDraft.channel]?.charLimit})`
-                          : `⚠ Over limit (max ${CHANNEL_SPECS[latestDraft.channel]?.charLimit})`}
-                      </span>
-                    )}
+              {/* Copywriter Hook Output */}
+              {latestDraft.socialCopy && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs text-neutral-400">
+                    <span className="font-mono uppercase text-[10px] font-semibold">Social Hook & Copy</span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyText(latestDraft.socialCopy)}
+                      className="hover:text-white transition flex items-center gap-1 cursor-pointer text-[10px]"
+                    >
+                      {copiedScript ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                      {copiedScript ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                  <div className="p-3 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-neutral-200 font-sans whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">
+                    {latestDraft.socialCopy}
                   </div>
                 </div>
-                <div className="text-xs text-neutral-300 leading-relaxed whitespace-pre-line max-h-48 overflow-y-auto pr-1">
-                  {latestDraft.post_body}
-                </div>
-                <div className="mt-3 pt-2 border-t border-neutral-800/80 text-xs font-mono text-neutral-400 truncate">
-                  {latestDraft.hashtags}
-                </div>
-              </div>
+              )}
 
-              {/* Voiceover Script Player */}
-              <VoiceoverPlayer
-                script={latestDraft.voiceover_script}
-                brandKey={latestDraft.brand_key}
-                brandName={latestDraft.brand_name}
-              />
+              {/* Voiceover Component Integration */}
+              {latestDraft.voiceoverScript && (
+                <div className="space-y-1.5">
+                  <span className="font-mono uppercase text-[10px] text-neutral-400 font-semibold block">
+                    Voiceover Pacing Script
+                  </span>
+                  <VoiceoverPlayer script={latestDraft.voiceoverScript} />
+                </div>
+              )}
 
-              {/* Queue CTA */}
-              <button
-                type="button"
-                onClick={onNavigateToQueue}
-                className="w-full py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white font-medium text-xs transition flex items-center justify-center gap-2 cursor-pointer"
-              >
-                Review in Human Approval Queue ({latestDraft.status})
-                <ExternalLink className="w-3.5 h-3.5" />
-              </button>
+              {/* Social Card Visual Rendering */}
+              {latestDraft.cardText && (
+                <div className="space-y-1.5">
+                  <span className="font-mono uppercase text-[10px] text-neutral-400 font-semibold block">
+                    Card Visual
+                  </span>
+                  <SocialCardCanvas
+                    text={latestDraft.cardText}
+                    brandKey={latestDraft.brandKey || selectedBrandKey}
+                  />
+                </div>
+              )}
             </div>
           ) : (
-            <div className="py-16 text-center text-neutral-500 space-y-3">
-              <Layers className="w-10 h-10 mx-auto text-neutral-700 stroke-[1.5]" />
-              <p className="text-xs max-w-xs mx-auto">
-                No draft generated yet in this session. Configure directives on the left
-                and click &quot;Dispatch Agent Team&quot;.
+            <div className="py-12 text-center text-neutral-500 space-y-3">
+              <Compass className="w-10 h-10 mx-auto text-neutral-700 animate-pulse" />
+              <p className="text-xs">
+                No active production package generated yet.
+                <br />
+                Configure your directive and click <strong>Dispatch Agent Team</strong>.
               </p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Algorithmic Hook Library Modal */}
-      <HookLibraryModal
-        isOpen={isHookModalOpen}
-        onClose={() => setIsHookModalOpen(false)}
-        onSelectHook={(hookText) => {
-          // Fill template placeholders with brand context if possible
-          const customized = hookText
-            .replace(/\[X\]/g, brand.sampleTopics[0] || 'strategic directive')
-            .replace(/\[Entity\]/g, brand.name)
-            .replace(/\[Category\]/g, brand.lexicon[0]);
-          setTopic(customized);
-        }}
-        activeBrand={brand}
-        defaultChannel={selectedChannel}
-      />
+      {/* Hook Library Modal */}
+      {isHookModalOpen && (
+        <HookLibraryModal
+          channel={selectedChannel}
+          onSelectHook={(hookText) => {
+            setTopic(hookText);
+            setIsHookModalOpen(false);
+          }}
+          onClose={() => setIsHookModalOpen(false)}
+        />
+      )}
     </div>
   );
 };
