@@ -1,24 +1,20 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShieldAlert,
   CheckCircle2,
   AlertTriangle,
   BookOpen,
   Sparkles,
-  Layers,
   Palette,
-  ExternalLink,
   Copy,
   Check,
   X,
-  Wand2,
   Loader2,
   ShieldCheck,
 } from 'lucide-react';
 import {
   BRANDS,
   BrandKey,
-  FORBIDDEN_UNIVERSAL_WORDS,
 } from '../types';
 import { BrandLogo } from './BrandLogo';
 
@@ -29,6 +25,55 @@ export const BrandMatrixViewer: React.FC = () => {
   const [testBrandKey, setTestBrandKey] = useState<BrandKey>('bhw_pr');
   const [selectedBrandModal, setSelectedBrandModal] = useState<BrandKey | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // Dynamic state loaded from Neon database endpoint
+  const [universalWords, setUniversalWords] = useState<string[]>([
+    'delve',
+    'tapestry',
+    'testament',
+    'game-changer',
+    'revolutionize',
+    'paradigm shift',
+    'unlock',
+    'unleash',
+    'supercharge',
+    'synergy',
+    'leverage',
+    'holistic',
+    'beacon',
+    'pivotal',
+    'realm',
+    'cutting-edge',
+    'groundbreaking',
+    'elevate',
+    'seamless',
+    'deep dive',
+    'navigating',
+    'curb appeal',
+    '10x',
+    'viral'
+  ]);
+
+  // Fetch words dynamically from Neon backend
+  useEffect(() => {
+    const fetchForbiddenWords = async () => {
+      try {
+        const res = await fetch('/api/forbidden-words');
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            setUniversalWords(data);
+          } else if (Array.isArray(data.words)) {
+            setUniversalWords(data.words);
+          }
+        }
+      } catch (err) {
+        console.warn('Using local fallback for forbidden words:', err);
+      }
+    };
+
+    fetchForbiddenWords();
+  }, []);
 
   // Gemini AI Deep Audit State
   const [isAiAuditing, setIsAiAuditing] = useState(false);
@@ -47,15 +92,15 @@ export const BrandMatrixViewer: React.FC = () => {
   // Heuristic linter
   const lowerText = testText.toLowerCase();
 
-  const detectedUniversal = FORBIDDEN_UNIVERSAL_WORDS.filter((word) =>
+  const detectedUniversal = universalWords.filter((word) =>
     lowerText.includes(word.toLowerCase())
   );
 
-  const detectedBrandForbidden = activeTestBrand.forbiddenWords.filter((word) =>
+  const detectedBrandForbidden = (activeTestBrand?.forbiddenWords || []).filter((word) =>
     lowerText.includes(word.toLowerCase())
   );
 
-  const detectedLexicon = activeTestBrand.lexicon.filter((term) =>
+  const detectedLexicon = (activeTestBrand?.lexicon || []).filter((term) =>
     lowerText.includes(term.toLowerCase())
   );
 
@@ -138,6 +183,7 @@ export const BrandMatrixViewer: React.FC = () => {
             <tbody className="divide-y divide-neutral-800/60 font-sans">
               {(Object.keys(BRANDS) as BrandKey[]).map((key) => {
                 const b = BRANDS[key];
+                if (!b) return null;
                 return (
                   <tr
                     key={key}
@@ -149,8 +195,8 @@ export const BrandMatrixViewer: React.FC = () => {
                         <div
                           className="w-8 h-8 rounded-lg overflow-hidden shrink-0 border shadow-sm p-0.5 flex items-center justify-center"
                           style={{
-                            borderColor: `${b.palette.accent}40`,
-                            backgroundColor: b.palette.bg,
+                            borderColor: `${b.palette?.accent || '#D97706'}40`,
+                            backgroundColor: b.palette?.bg || '#111827',
                           }}
                         >
                           <BrandLogo brandKey={key} size="xs" />
@@ -173,7 +219,7 @@ export const BrandMatrixViewer: React.FC = () => {
                     </td>
                     <td className="py-3 px-3">
                       <div className="flex flex-wrap gap-1 max-w-xs">
-                        {b.lexicon.slice(0, 3).map((term, i) => (
+                        {(b.lexicon || []).slice(0, 3).map((term, i) => (
                           <span
                             key={i}
                             className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-neutral-950 text-neutral-300 border border-neutral-800"
@@ -187,31 +233,32 @@ export const BrandMatrixViewer: React.FC = () => {
                       {b.negativeConstraints}
                     </td>
                     <td className="py-3 px-3">
-                      {/* 4-Color Palette Swatches with Tooltips */}
-                      <div className="flex items-center gap-1.5">
-                        <div
-                          className="w-5 h-5 rounded border border-white/20 shadow-sm"
-                          style={{ backgroundColor: b.palette.bg }}
-                          title={`BG: ${b.palette.names.bg} (${b.palette.bg})`}
-                        />
-                        <div
-                          className="w-5 h-5 rounded border border-white/20 shadow-sm"
-                          style={{ backgroundColor: b.palette.accent }}
-                          title={`Accent: ${b.palette.names.accent} (${b.palette.accent})`}
-                        />
-                        <div
-                          className="w-5 h-5 rounded border border-white/20 shadow-sm"
-                          style={{ backgroundColor: b.palette.secondary }}
-                          title={`Secondary: ${b.palette.names.secondary} (${b.palette.secondary})`}
-                        />
-                        <div
-                          className="w-5 h-5 rounded border border-white/20 shadow-sm"
-                          style={{ backgroundColor: b.palette.text }}
-                          title={`Text: ${b.palette.names.text} (${b.palette.text})`}
-                        />
-                      </div>
+                      {b.palette && (
+                        <div className="flex items-center gap-1.5">
+                          <div
+                            className="w-5 h-5 rounded border border-white/20 shadow-sm"
+                            style={{ backgroundColor: b.palette.bg }}
+                            title={`BG: ${b.palette.names?.bg || ''} (${b.palette.bg})`}
+                          />
+                          <div
+                            className="w-5 h-5 rounded border border-white/20 shadow-sm"
+                            style={{ backgroundColor: b.palette.accent }}
+                            title={`Accent: ${b.palette.names?.accent || ''} (${b.palette.accent})`}
+                          />
+                          <div
+                            className="w-5 h-5 rounded border border-white/20 shadow-sm"
+                            style={{ backgroundColor: b.palette.secondary }}
+                            title={`Secondary: ${b.palette.names?.secondary || ''} (${b.palette.secondary})`}
+                          />
+                          <div
+                            className="w-5 h-5 rounded border border-white/20 shadow-sm"
+                            style={{ backgroundColor: b.palette.text }}
+                            title={`Text: ${b.palette.names?.text || ''} (${b.palette.text})`}
+                          />
+                        </div>
+                      )}
                       <span className="text-[9px] font-mono text-neutral-500 block mt-1">
-                        {b.palette.names.accent}
+                        {b.palette?.names?.accent || ''}
                       </span>
                     </td>
                   </tr>
@@ -251,7 +298,7 @@ export const BrandMatrixViewer: React.FC = () => {
             >
               {(Object.keys(BRANDS) as BrandKey[]).map((k) => (
                 <option key={k} value={k}>
-                  {BRANDS[k].name}
+                  {BRANDS[k]?.name || k}
                 </option>
               ))}
             </select>
@@ -390,7 +437,7 @@ export const BrandMatrixViewer: React.FC = () => {
             )}
 
             {/* Brand-Specific Forbidden Slang */}
-            {detectedBrandForbidden.length > 0 && (
+            {detectedBrandForbidden.length > 0 && activeTestBrand && (
               <div className="p-2.5 rounded-lg bg-rose-950/30 border border-rose-900/50 text-xs">
                 <span className="font-mono text-[10px] text-rose-400 uppercase font-bold block mb-1">
                   {activeTestBrand.name} Slang Violations:
@@ -414,7 +461,7 @@ export const BrandMatrixViewer: React.FC = () => {
             {/* Matched Positive Lexicon */}
             <div className="p-2.5 rounded-lg bg-neutral-900 border border-neutral-800 text-xs">
               <span className="font-mono text-[10px] text-emerald-400 uppercase font-bold block mb-1">
-                Positive Lexicon Anchors Found ({detectedLexicon.length}/{activeTestBrand.lexicon.length}):
+                Positive Lexicon Anchors Found ({detectedLexicon.length}/{activeTestBrand?.lexicon?.length || 0}):
               </span>
               {detectedLexicon.length > 0 ? (
                 <div className="flex flex-wrap gap-1">
@@ -429,7 +476,7 @@ export const BrandMatrixViewer: React.FC = () => {
                 </div>
               ) : (
                 <p className="text-[11px] text-neutral-500">
-                  No core lexicon anchors detected. Try incorporating terms like &quot;{activeTestBrand.lexicon[0]}&quot; or &quot;{activeTestBrand.lexicon[1]}&quot;.
+                  No core lexicon anchors detected. Try incorporating terms like &quot;{activeTestBrand?.lexicon?.[0] || 'framework'}&quot; or &quot;{activeTestBrand?.lexicon?.[1] || 'strategy'}&quot;.
                 </p>
               )}
             </div>
@@ -446,11 +493,11 @@ export const BrandMatrixViewer: React.FC = () => {
                 <div
                   className="w-10 h-10 rounded-lg overflow-hidden shrink-0 border shadow-md p-0.5 flex items-center justify-center"
                   style={{
-                    borderColor: `${modalBrand.palette.accent}50`,
-                    backgroundColor: modalBrand.palette.bg,
+                    borderColor: `${modalBrand.palette?.accent || '#D97706'}50`,
+                    backgroundColor: modalBrand.palette?.bg || '#111827',
                   }}
                 >
-                  <BrandLogo brandKey={modalBrand.key} size="sm" />
+                  <BrandLogo brandKey={modalBrand.key as BrandKey} size="sm" />
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-white leading-tight">
@@ -470,100 +517,86 @@ export const BrandMatrixViewer: React.FC = () => {
             </div>
 
             {/* 4-Color Palette Architecture Card */}
-            <div className="p-4 rounded-xl bg-neutral-950 border border-neutral-800 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-white font-mono uppercase flex items-center gap-1.5">
-                  <Palette className="w-4 h-4 text-amber-400" />
-                  Updated Creative Palette Architecture (graphics.py)
-                </span>
-                <button
-                  onClick={() =>
-                    handleCopy(
-                      `"${modalBrand.key}": {\n  "bg": (${modalBrand.palette.bgRgb.join(', ')}),\n  "accent": (${modalBrand.palette.accentRgb.join(', ')}),\n  "secondary": (${modalBrand.palette.secondaryRgb.join(', ')}),\n  "text": (${modalBrand.palette.textRgb.join(', ')})\n}`,
-                      'py-snippet'
-                    )
-                  }
-                  className="text-[11px] font-mono text-amber-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer"
-                >
-                  {copiedKey === 'py-snippet' ? (
-                    <Check className="w-3.5 h-3.5 text-emerald-400" />
-                  ) : (
-                    <Copy className="w-3.5 h-3.5" />
-                  )}
-                  Copy Python Snippet
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
-                {/* 1. Background */}
-                <div className="p-2.5 rounded-lg bg-neutral-900 border border-neutral-800 text-center space-y-1.5">
-                  <div
-                    className="w-full h-10 rounded-md border border-white/10"
-                    style={{ backgroundColor: modalBrand.palette.bg }}
-                  />
-                  <div className="text-[11px] font-bold text-white truncate">
-                    {modalBrand.palette.names.bg}
-                  </div>
-                  <div className="text-[10px] font-mono text-neutral-400">
-                    {modalBrand.palette.bg}
-                  </div>
-                  <div className="text-[9px] font-mono text-neutral-500">
-                    rgb({modalBrand.palette.bgRgb.join(', ')})
-                  </div>
+            {modalBrand.palette && (
+              <div className="p-4 rounded-xl bg-neutral-950 border border-neutral-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-white font-mono uppercase flex items-center gap-1.5">
+                    <Palette className="w-4 h-4 text-amber-400" />
+                    Updated Creative Palette Architecture (graphics.py)
+                  </span>
+                  <button
+                    onClick={() =>
+                      handleCopy(
+                        `"${modalBrand.key}": {\n  "bg": (${modalBrand.palette.bgRgb?.join(', ') || '0, 0, 0'}),\n  "accent": (${modalBrand.palette.accentRgb?.join(', ') || '0, 0, 0'}),\n  "secondary": (${modalBrand.palette.secondaryRgb?.join(', ') || '0, 0, 0'}),\n  "text": (${modalBrand.palette.textRgb?.join(', ') || '255, 255, 255'})\n}`,
+                        'py-snippet'
+                      )
+                    }
+                    className="text-[11px] font-mono text-amber-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer"
+                  >
+                    {copiedKey === 'py-snippet' ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
+                    Copy Python Snippet
+                  </button>
                 </div>
 
-                {/* 2. Accent */}
-                <div className="p-2.5 rounded-lg bg-neutral-900 border border-neutral-800 text-center space-y-1.5">
-                  <div
-                    className="w-full h-10 rounded-md border border-white/10"
-                    style={{ backgroundColor: modalBrand.palette.accent }}
-                  />
-                  <div className="text-[11px] font-bold text-white truncate">
-                    {modalBrand.palette.names.accent}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+                  <div className="p-2.5 rounded-lg bg-neutral-900 border border-neutral-800 text-center space-y-1.5">
+                    <div
+                      className="w-full h-10 rounded-md border border-white/10"
+                      style={{ backgroundColor: modalBrand.palette.bg }}
+                    />
+                    <div className="text-[11px] font-bold text-white truncate">
+                      {modalBrand.palette.names?.bg}
+                    </div>
+                    <div className="text-[10px] font-mono text-neutral-400">
+                      {modalBrand.palette.bg}
+                    </div>
                   </div>
-                  <div className="text-[10px] font-mono text-neutral-400">
-                    {modalBrand.palette.accent}
-                  </div>
-                  <div className="text-[9px] font-mono text-neutral-500">
-                    rgb({modalBrand.palette.accentRgb.join(', ')})
-                  </div>
-                </div>
 
-                {/* 3. Secondary */}
-                <div className="p-2.5 rounded-lg bg-neutral-900 border border-neutral-800 text-center space-y-1.5">
-                  <div
-                    className="w-full h-10 rounded-md border border-white/10"
-                    style={{ backgroundColor: modalBrand.palette.secondary }}
-                  />
-                  <div className="text-[11px] font-bold text-white truncate">
-                    {modalBrand.palette.names.secondary}
+                  <div className="p-2.5 rounded-lg bg-neutral-900 border border-neutral-800 text-center space-y-1.5">
+                    <div
+                      className="w-full h-10 rounded-md border border-white/10"
+                      style={{ backgroundColor: modalBrand.palette.accent }}
+                    />
+                    <div className="text-[11px] font-bold text-white truncate">
+                      {modalBrand.palette.names?.accent}
+                    </div>
+                    <div className="text-[10px] font-mono text-neutral-400">
+                      {modalBrand.palette.accent}
+                    </div>
                   </div>
-                  <div className="text-[10px] font-mono text-neutral-400">
-                    {modalBrand.palette.secondary}
-                  </div>
-                  <div className="text-[9px] font-mono text-neutral-500">
-                    rgb({modalBrand.palette.secondaryRgb.join(', ')})
-                  </div>
-                </div>
 
-                {/* 4. Text */}
-                <div className="p-2.5 rounded-lg bg-neutral-900 border border-neutral-800 text-center space-y-1.5">
-                  <div
-                    className="w-full h-10 rounded-md border border-white/10"
-                    style={{ backgroundColor: modalBrand.palette.text }}
-                  />
-                  <div className="text-[11px] font-bold text-white truncate">
-                    {modalBrand.palette.names.text}
+                  <div className="p-2.5 rounded-lg bg-neutral-900 border border-neutral-800 text-center space-y-1.5">
+                    <div
+                      className="w-full h-10 rounded-md border border-white/10"
+                      style={{ backgroundColor: modalBrand.palette.secondary }}
+                    />
+                    <div className="text-[11px] font-bold text-white truncate">
+                      {modalBrand.palette.names?.secondary}
+                    </div>
+                    <div className="text-[10px] font-mono text-neutral-400">
+                      {modalBrand.palette.secondary}
+                    </div>
                   </div>
-                  <div className="text-[10px] font-mono text-neutral-400">
-                    {modalBrand.palette.text}
-                  </div>
-                  <div className="text-[9px] font-mono text-neutral-500">
-                    rgb({modalBrand.palette.textRgb.join(', ')})
+
+                  <div className="p-2.5 rounded-lg bg-neutral-900 border border-neutral-800 text-center space-y-1.5">
+                    <div
+                      className="w-full h-10 rounded-md border border-white/10"
+                      style={{ backgroundColor: modalBrand.palette.text }}
+                    />
+                    <div className="text-[11px] font-bold text-white truncate">
+                      {modalBrand.palette.names?.text}
+                    </div>
+                    <div className="text-[10px] font-mono text-neutral-400">
+                      {modalBrand.palette.text}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Persona Details */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
@@ -580,7 +613,7 @@ export const BrandMatrixViewer: React.FC = () => {
                   Mandatory Lexicon
                 </span>
                 <div className="flex flex-wrap gap-1">
-                  {modalBrand.lexicon.map((term, i) => (
+                  {(modalBrand.lexicon || []).map((term, i) => (
                     <span
                       key={i}
                       className="px-2 py-0.5 rounded text-[10px] font-mono bg-neutral-950 text-neutral-300 border border-neutral-800"
