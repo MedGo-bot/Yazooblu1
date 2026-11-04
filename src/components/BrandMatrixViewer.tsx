@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   ShieldAlert,
   CheckCircle2,
@@ -12,10 +12,7 @@ import {
   Loader2,
   ShieldCheck,
 } from 'lucide-react';
-import {
-  BRANDS,
-  BrandKey,
-} from '../types';
+import { BRANDS, BrandKey } from '../types';
 import { BrandLogo } from './BrandLogo';
 
 export const BrandMatrixViewer: React.FC = () => {
@@ -26,7 +23,7 @@ export const BrandMatrixViewer: React.FC = () => {
   const [selectedBrandModal, setSelectedBrandModal] = useState<BrandKey | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  // Dynamic state loaded from Neon database endpoint
+  // Dynamic state loaded from Neon database endpoint with safe defaults
   const [universalWords, setUniversalWords] = useState<string[]>([
     'delve',
     'tapestry',
@@ -51,20 +48,24 @@ export const BrandMatrixViewer: React.FC = () => {
     'navigating',
     'curb appeal',
     '10x',
-    'viral'
+    'viral',
   ]);
 
-  // Fetch words dynamically from Neon backend
+  // Fetch words dynamically from backend with safe response guards
   useEffect(() => {
+    let isMounted = true;
     const fetchForbiddenWords = async () => {
       try {
         const res = await fetch('/api/forbidden-words');
-        if (res.ok) {
+        const contentType = res.headers.get('content-type');
+        if (res.ok && contentType && contentType.includes('application/json')) {
           const data = await res.json();
-          if (Array.isArray(data)) {
-            setUniversalWords(data);
-          } else if (Array.isArray(data.words)) {
-            setUniversalWords(data.words);
+          if (isMounted) {
+            if (Array.isArray(data)) {
+              setUniversalWords(data.filter(Boolean));
+            } else if (Array.isArray(data?.words)) {
+              setUniversalWords(data.words.filter(Boolean));
+            }
           }
         }
       } catch (err) {
@@ -73,6 +74,9 @@ export const BrandMatrixViewer: React.FC = () => {
     };
 
     fetchForbiddenWords();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // Gemini AI Deep Audit State
@@ -81,32 +85,33 @@ export const BrandMatrixViewer: React.FC = () => {
     compliance_score: number;
     verdict: string;
     identified_violations: string[];
-    matched_lexicon: string[];
-    missing_lexicon: string[];
+    matched_lexicon?: string[];
+    missing_lexicon?: string[];
     critique: string;
-    surgical_rewrite: string;
+    surgical_rewrite?: string;
   } | null>(null);
 
-  const activeTestBrand = BRANDS[testBrandKey];
+  const activeTestBrand = BRANDS[testBrandKey] || BRANDS['bhw_pr'];
 
-  // Heuristic linter
-  const lowerText = testText.toLowerCase();
+  // Heuristic linter guards
+  const lowerText = (testText || '').toLowerCase();
 
-  const detectedUniversal = universalWords.filter((word) =>
-    lowerText.includes(word.toLowerCase())
+  const detectedUniversal = universalWords.filter(
+    (word) => word && word.trim() && lowerText.includes(word.toLowerCase().trim())
   );
 
-  const detectedBrandForbidden = (activeTestBrand?.forbiddenWords || []).filter((word) =>
-    lowerText.includes(word.toLowerCase())
+  const detectedBrandForbidden = (activeTestBrand?.forbiddenWords || []).filter(
+    (word) => word && word.trim() && lowerText.includes(word.toLowerCase().trim())
   );
 
-  const detectedLexicon = (activeTestBrand?.lexicon || []).filter((term) =>
-    lowerText.includes(term.toLowerCase())
+  const detectedLexicon = (activeTestBrand?.lexicon || []).filter(
+    (term) => term && term.trim() && lowerText.includes(term.toLowerCase().trim())
   );
 
   const hasViolations = detectedUniversal.length > 0 || detectedBrandForbidden.length > 0;
 
   const handleCopy = (text: string, key: string) => {
+    if (!text) return;
     navigator.clipboard.writeText(text);
     setCopiedKey(key);
     setTimeout(() => setCopiedKey(null), 2000);
@@ -127,11 +132,14 @@ export const BrandMatrixViewer: React.FC = () => {
         }),
       });
 
-      if (res.ok) {
+      const contentType = res.headers.get('content-type');
+      if (res.ok && contentType && contentType.includes('application/json')) {
         const data = await res.json();
-        if (data.result) {
+        if (data?.result) {
           setAiAuditResult(data.result);
         }
+      } else {
+        console.warn('AI audit endpoint returned non-JSON or status error');
       }
     } catch (err) {
       console.error('AI audit error:', err);
@@ -139,6 +147,20 @@ export const BrandMatrixViewer: React.FC = () => {
       setIsAiAuditing(false);
     }
   };
+
+  // Keyboard Escape key dismissal for modal
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      setSelectedBrandModal(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedBrandModal) {
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [selectedBrandModal, handleKeyDown]);
 
   const modalBrand = selectedBrandModal ? BRANDS[selectedBrandModal] : null;
 
@@ -156,7 +178,7 @@ export const BrandMatrixViewer: React.FC = () => {
                 Brand Voice & Palette Architecture Matrix
               </h2>
               <p className="text-xs text-neutral-400">
-                The 7 sovereign editorial personas, linguistic anchors, strict negative constraints, and updated creative palettes.
+                The sovereign editorial personas, linguistic anchors, strict negative constraints, and creative palettes.
               </p>
             </div>
           </div>
@@ -184,6 +206,9 @@ export const BrandMatrixViewer: React.FC = () => {
               {(Object.keys(BRANDS) as BrandKey[]).map((key) => {
                 const b = BRANDS[key];
                 if (!b) return null;
+                const accentColor = b?.palette?.accent || b?.colors?.accent || '#D97706';
+                const bgColor = b?.palette?.bg || b?.colors?.bg || '#111827';
+
                 return (
                   <tr
                     key={key}
@@ -195,27 +220,27 @@ export const BrandMatrixViewer: React.FC = () => {
                         <div
                           className="w-8 h-8 rounded-lg overflow-hidden shrink-0 border shadow-sm p-0.5 flex items-center justify-center"
                           style={{
-                            borderColor: `${b.palette?.accent || '#D97706'}40`,
-                            backgroundColor: b.palette?.bg || '#111827',
+                            borderColor: `${accentColor}40`,
+                            backgroundColor: bgColor,
                           }}
                         >
                           <BrandLogo brandKey={key} size="xs" />
                         </div>
                         <div>
                           <div className="font-bold text-white group-hover:text-amber-300 transition">
-                            {b.name}
+                            {b.name || key}
                           </div>
                           <span className="text-[10px] font-mono text-neutral-500">
-                            `{b.key}`
+                            `{b.key || key}`
                           </span>
                         </div>
                       </div>
                     </td>
                     <td className="py-3 px-3 font-medium text-neutral-200">
-                      {b.archetype}
+                      {b.archetype || 'Sovereign Persona'}
                     </td>
                     <td className="py-3 px-3 text-neutral-400 leading-relaxed max-w-xs">
-                      {b.posture}
+                      {b.posture || 'Strategic & Authoritative'}
                     </td>
                     <td className="py-3 px-3">
                       <div className="flex flex-wrap gap-1 max-w-xs">
@@ -230,29 +255,29 @@ export const BrandMatrixViewer: React.FC = () => {
                       </div>
                     </td>
                     <td className="py-3 px-3 text-rose-300/90 text-[11px] leading-relaxed max-w-xs">
-                      {b.negativeConstraints}
+                      {b.negativeConstraints || 'Avoid ungrounded buzzwords.'}
                     </td>
                     <td className="py-3 px-3">
                       {b.palette && (
                         <div className="flex items-center gap-1.5">
                           <div
                             className="w-5 h-5 rounded border border-white/20 shadow-sm"
-                            style={{ backgroundColor: b.palette.bg }}
+                            style={{ backgroundColor: b.palette.bg || '#0a0a0a' }}
                             title={`BG: ${b.palette.names?.bg || ''} (${b.palette.bg})`}
                           />
                           <div
                             className="w-5 h-5 rounded border border-white/20 shadow-sm"
-                            style={{ backgroundColor: b.palette.accent }}
+                            style={{ backgroundColor: b.palette.accent || '#f59e0b' }}
                             title={`Accent: ${b.palette.names?.accent || ''} (${b.palette.accent})`}
                           />
                           <div
                             className="w-5 h-5 rounded border border-white/20 shadow-sm"
-                            style={{ backgroundColor: b.palette.secondary }}
+                            style={{ backgroundColor: b.palette.secondary || '#3b82f6' }}
                             title={`Secondary: ${b.palette.names?.secondary || ''} (${b.palette.secondary})`}
                           />
                           <div
                             className="w-5 h-5 rounded border border-white/20 shadow-sm"
-                            style={{ backgroundColor: b.palette.text }}
+                            style={{ backgroundColor: b.palette.text || '#ffffff' }}
                             title={`Text: ${b.palette.names?.text || ''} (${b.palette.text})`}
                           />
                         </div>
@@ -281,7 +306,7 @@ export const BrandMatrixViewer: React.FC = () => {
                 Live Brand Voice & Constraint Linter
               </h3>
               <p className="text-xs text-neutral-400">
-                Audit copy against forbidden negative slang, universal AI fluff, and run deep Gemini 3.8 Flash analysis
+                Audit copy against forbidden negative slang, universal AI fluff, and run deep Gemini Flash analysis
               </p>
             </div>
           </div>
@@ -329,7 +354,7 @@ export const BrandMatrixViewer: React.FC = () => {
                       `In evaluating the crisis perimeter, strategic silence maintains narrative architecture without succumbing to external pressure.`
                     )
                   }
-                  className="text-[11px] px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 cursor-pointer"
+                  className="text-[11px] px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 cursor-pointer transition"
                 >
                   Load Compliant Sample
                 </button>
@@ -340,7 +365,7 @@ export const BrandMatrixViewer: React.FC = () => {
                       `We need to delve into this game-changer hack to create viral buzz and drip for our 10x hustle.`
                     )
                   }
-                  className="text-[11px] px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 cursor-pointer"
+                  className="text-[11px] px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 cursor-pointer transition"
                 >
                   Load Violation Sample
                 </button>
@@ -367,10 +392,10 @@ export const BrandMatrixViewer: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <span className="font-mono text-xs font-bold text-purple-300 flex items-center gap-1.5">
                     <ShieldCheck className="w-4 h-4 text-purple-400" />
-                    Gemini 3.8 Flash Audit Verdict: {aiAuditResult.verdict}
+                    Gemini Audit Verdict: {aiAuditResult.verdict || 'AUDITED'}
                   </span>
                   <span className="font-mono text-xs px-2 py-0.5 rounded bg-purple-500/20 text-purple-200 border border-purple-500/30">
-                    Score: {aiAuditResult.compliance_score}/100
+                    Score: {aiAuditResult.compliance_score ?? 100}/100
                   </span>
                 </div>
                 <p className="text-xs text-neutral-300 leading-relaxed font-sans">
@@ -386,8 +411,12 @@ export const BrandMatrixViewer: React.FC = () => {
                     </div>
                     <button
                       type="button"
-                      onClick={() => setTestText(aiAuditResult.surgical_rewrite)}
-                      className="text-[11px] font-mono text-purple-300 hover:text-purple-200 px-2 py-1 rounded bg-purple-900/30 hover:bg-purple-900/50 border border-purple-700/50 cursor-pointer"
+                      onClick={() => {
+                        if (aiAuditResult.surgical_rewrite) {
+                          setTestText(aiAuditResult.surgical_rewrite);
+                        }
+                      }}
+                      className="text-[11px] font-mono text-purple-300 hover:text-purple-200 px-2 py-1 rounded bg-purple-900/30 hover:bg-purple-900/50 border border-purple-700/50 cursor-pointer transition"
                     >
                       Adopt Surgical Rewrite →
                     </button>
@@ -486,8 +515,14 @@ export const BrandMatrixViewer: React.FC = () => {
 
       {/* Brand Inspection Modal */}
       {modalBrand && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-2xl w-full p-6 space-y-5 shadow-2xl">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+          onClick={() => setSelectedBrandModal(null)}
+        >
+          <div
+            className="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-2xl w-full p-6 space-y-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between pb-3 border-b border-neutral-800">
               <div className="flex items-center gap-3">
                 <div
@@ -509,8 +544,9 @@ export const BrandMatrixViewer: React.FC = () => {
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setSelectedBrandModal(null)}
-                className="p-1 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 cursor-pointer"
+                className="p-1 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 cursor-pointer transition"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -525,13 +561,14 @@ export const BrandMatrixViewer: React.FC = () => {
                     Updated Creative Palette Architecture (graphics.py)
                   </span>
                   <button
+                    type="button"
                     onClick={() =>
                       handleCopy(
-                        `"${modalBrand.key}": {\n  "bg": (${modalBrand.palette.bgRgb?.join(', ') || '0, 0, 0'}),\n  "accent": (${modalBrand.palette.accentRgb?.join(', ') || '0, 0, 0'}),\n  "secondary": (${modalBrand.palette.secondaryRgb?.join(', ') || '0, 0, 0'}),\n  "text": (${modalBrand.palette.textRgb?.join(', ') || '255, 255, 255'})\n}`,
+                        `"${modalBrand.key}": {\n  "bg": (${modalBrand.palette?.bgRgb?.join(', ') || '0, 0, 0'}),\n  "accent": (${modalBrand.palette?.accentRgb?.join(', ') || '217, 119, 6'}),\n  "secondary": (${modalBrand.palette?.secondaryRgb?.join(', ') || '59, 130, 246'}),\n  "text": (${modalBrand.palette?.textRgb?.join(', ') || '255, 255, 255'})\n}`,
                         'py-snippet'
                       )
                     }
-                    className="text-[11px] font-mono text-amber-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer"
+                    className="text-[11px] font-mono text-amber-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer transition"
                   >
                     {copiedKey === 'py-snippet' ? (
                       <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -546,52 +583,52 @@ export const BrandMatrixViewer: React.FC = () => {
                   <div className="p-2.5 rounded-lg bg-neutral-900 border border-neutral-800 text-center space-y-1.5">
                     <div
                       className="w-full h-10 rounded-md border border-white/10"
-                      style={{ backgroundColor: modalBrand.palette.bg }}
+                      style={{ backgroundColor: modalBrand.palette.bg || '#0a0a0a' }}
                     />
                     <div className="text-[11px] font-bold text-white truncate">
-                      {modalBrand.palette.names?.bg}
+                      {modalBrand.palette.names?.bg || 'Background'}
                     </div>
                     <div className="text-[10px] font-mono text-neutral-400">
-                      {modalBrand.palette.bg}
+                      {modalBrand.palette.bg || '#0a0a0a'}
                     </div>
                   </div>
 
                   <div className="p-2.5 rounded-lg bg-neutral-900 border border-neutral-800 text-center space-y-1.5">
                     <div
                       className="w-full h-10 rounded-md border border-white/10"
-                      style={{ backgroundColor: modalBrand.palette.accent }}
+                      style={{ backgroundColor: modalBrand.palette.accent || '#f59e0b' }}
                     />
                     <div className="text-[11px] font-bold text-white truncate">
-                      {modalBrand.palette.names?.accent}
+                      {modalBrand.palette.names?.accent || 'Accent'}
                     </div>
                     <div className="text-[10px] font-mono text-neutral-400">
-                      {modalBrand.palette.accent}
+                      {modalBrand.palette.accent || '#f59e0b'}
                     </div>
                   </div>
 
                   <div className="p-2.5 rounded-lg bg-neutral-900 border border-neutral-800 text-center space-y-1.5">
                     <div
                       className="w-full h-10 rounded-md border border-white/10"
-                      style={{ backgroundColor: modalBrand.palette.secondary }}
+                      style={{ backgroundColor: modalBrand.palette.secondary || '#3b82f6' }}
                     />
                     <div className="text-[11px] font-bold text-white truncate">
-                      {modalBrand.palette.names?.secondary}
+                      {modalBrand.palette.names?.secondary || 'Secondary'}
                     </div>
                     <div className="text-[10px] font-mono text-neutral-400">
-                      {modalBrand.palette.secondary}
+                      {modalBrand.palette.secondary || '#3b82f6'}
                     </div>
                   </div>
 
                   <div className="p-2.5 rounded-lg bg-neutral-900 border border-neutral-800 text-center space-y-1.5">
                     <div
                       className="w-full h-10 rounded-md border border-white/10"
-                      style={{ backgroundColor: modalBrand.palette.text }}
+                      style={{ backgroundColor: modalBrand.palette.text || '#ffffff' }}
                     />
                     <div className="text-[11px] font-bold text-white truncate">
-                      {modalBrand.palette.names?.text}
+                      {modalBrand.palette.names?.text || 'Text'}
                     </div>
                     <div className="text-[10px] font-mono text-neutral-400">
-                      {modalBrand.palette.text}
+                      {modalBrand.palette.text || '#ffffff'}
                     </div>
                   </div>
                 </div>
