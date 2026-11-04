@@ -95,15 +95,19 @@ export const BrandStudioCanvas: React.FC<BrandStudioCanvasProps> = ({
   });
   const selectedColumn = brand.columns?.find((c) => c.id === selectedColumnId) || null;
 
-    // Stage 1: Strategy State
-  const [audience, setAudience] = useState<string>(brand.audiences[0]);
+   // Stage 1: Strategy State
+  const [audience, setAudience] = useState<string>(
+    brand.audiences?.[0] || 'Executive Leadership & Principals'
+  );
   const [channel, setChannel] = useState<Channel>(initialChannel || 'LinkedIn');
-  const [topic, setTopic] = useState<string>(initialTopic || brand.sampleTopics[0]);
+  const [topic, setTopic] = useState<string>(
+    initialTopic || brand.sampleTopics?.[0] || `Strategic positioning for ${brand.name}`
+  );
   const [strategicObjective, setStrategicObjective] = useState<string>(
-    `Establish category dominance for ${brand.name} via ${brand.lexicon[0].toLowerCase()}`
+    `Establish category dominance for ${brand.name} via ${brand.lexicon?.[0]?.toLowerCase() || 'thought leadership'}`
   );
   const [strategicTension, setStrategicTension] = useState<string>(
-    `Market participants default to superficial assumptions, ignoring ${brand.lexicon[1] || brand.lexicon[0]}`
+    `Market participants default to superficial assumptions, ignoring ${brand.lexicon?.[1] || brand.lexicon?.[0] || 'core structural realities'}`
   );
   const [isHookModalOpen, setIsHookModalOpen] = useState(false);
 
