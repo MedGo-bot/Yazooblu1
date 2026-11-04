@@ -1,20 +1,23 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
 import { INITIAL_DRAFTS } from './src/mockData';
 import { BRANDS, BrandKey, Channel, ProductionPackage, HOOK_LIBRARY, getPlatformHooks, CHANNEL_SPECS } from './src/types';
 
 dotenv.config();
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
-// Dynamic port binding for cloud platforms like Cloud Run or Render with local fallback
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json({ limit: '10mb' }));
 
 // In-memory persistent drafts collection
-let drafts: ProductionPackage[] = [...INITIAL_DRAFTS];
+let drafts: ProductionPackage[] = [...(INITIAL_DRAFTS || [])];
 
 // Initialize Gemini Client with server telemetry header
 const apiKey = process.env.GEMINI_API_KEY;
@@ -96,76 +99,48 @@ function generateFallbackPackage(
   topic: string,
   magazineColumn?: string
 ): any {
-  const brand = BRANDS[brandKey];
-  const lexiconTerms = brand.lexicon.slice(0, 3).join(', ');
-  const platformHooks = getPlatformHooks(channel);
+  const brand = BRANDS[brandKey] || BRANDS['fyrrion'];
+  const lexiconTerms = Array.isArray(brand?.lexicon) ? brand.lexicon.slice(0, 3).join(', ') : 'strategy, alignment';
+  const platformHooks = typeof getPlatformHooks === 'function' ? getPlatformHooks(channel) : [];
 
   let postBody = '';
-  const columnPrefix = magazineColumn ? `[${magazineColumn.toUpperCase()}]\n\n` : '';
   if (channel === 'Bluesky') {
-    postBody = `When evaluating ${topic.toLowerCase()}, standard assumptions collapse. True authority in our domain requires ${brand.lexicon[0].toLowerCase()} over transient sentiment. Rigorous standards dictate real-world outcomes.`.slice(0, 290);
+    postBody = `When evaluating ${topic.toLowerCase()}, standard assumptions collapse. True authority in our domain requires ${brand?.lexicon?.[0]?.toLowerCase() || 'rigor'} over transient sentiment. Rigorous standards dictate real-world outcomes.`.slice(0, 290);
   } else if (channel === 'Threads') {
-    postBody = `Unpopular truth: The conversation around ${topic.toLowerCase()} is treating a structural crisis with cosmetic rhetoric. If you ignore ${brand.lexicon[0].toLowerCase()}, failure is guaranteed. Agree or disagree?`.slice(0, 290);
+    postBody = `Unpopular truth: The conversation around ${topic.toLowerCase()} is treating a structural crisis with cosmetic rhetoric. If you ignore ${brand?.lexicon?.[0]?.toLowerCase() || 'fundamentals'}, failure is guaranteed. Agree or disagree?`.slice(0, 290);
   } else if (channel === 'Pinterest') {
-    postBody = `THE EDITORIAL BLUEPRINT: ${brand.name.toUpperCase()}\n\nTopic: ${topic}\n\nKey Spec Breakdown:\n• ${brand.lexicon[0]}: Fundamental baseline verification\n• ${brand.lexicon[1]}: Eliminating cosmetic shortcuts\n• Operational Integrity: Verifiable evidence over marketing sentiment\n\nSave this Pin to your permanent resource board for technical reference.`.slice(0, 780);
+    postBody = `THE EDITORIAL BLUEPRINT: ${(brand?.name || 'STUDIO').toUpperCase()}\n\nTopic: ${topic}\n\nKey Spec Breakdown:\n• ${brand?.lexicon?.[0] || 'Rigor'}: Fundamental baseline verification\n• ${brand?.lexicon?.[1] || 'Precision'}: Eliminating cosmetic shortcuts\n• Operational Integrity: Verifiable evidence over marketing sentiment\n\nSave this Pin to your permanent resource board for technical reference.`.slice(0, 780);
   } else if (channel === 'X') {
-    postBody = `${topic.slice(0, 130)}. Conventional practices ignore ${brand.lexicon[0].toLowerCase()}. Signal over noise. Precision over panic.`.slice(0, 255);
+    postBody = `${topic.slice(0, 130)}. Conventional practices ignore ${brand?.lexicon?.[0]?.toLowerCase() || 'core metrics'}. Signal over noise. Precision over panic.`.slice(0, 255);
   } else if (channel === 'TikTok') {
-    postBody = `Watch what happens when you evaluate ${topic.toLowerCase()} through raw ${brand.lexicon[0].toLowerCase()}. This single operational shift changes the entire outcome. Save this workflow.`.slice(0, 240);
+    postBody = `Watch what happens when you evaluate ${topic.toLowerCase()} through raw ${brand?.lexicon?.[0]?.toLowerCase() || 'data'}. This single operational shift changes the entire outcome. Save this workflow.`.slice(0, 240);
   } else if (channel === 'Instagram') {
-    postBody = `THE STANDARD OF EXCELLENCE.\n\n${topic}.\n\nIn our domain, ${brand.lexicon[0].toLowerCase()} is not an ornamental phrase. It is the boundary between lasting authority and operational compromise.\n\n1. Establish definitive benchmarks.\n2. Reject cosmetic remedies.\n3. Demand evidentiary precision.\n\nRead the full dossier in our archive.`;
+    postBody = `THE STANDARD OF EXCELLENCE.\n\n${topic}.\n\nIn our domain, ${brand?.lexicon?.[0]?.toLowerCase() || 'rigor'} is not an ornamental phrase. It is the boundary between lasting authority and operational compromise.\n\n1. Establish definitive benchmarks.\n2. Reject cosmetic remedies.\n3. Demand evidentiary precision.\n\nRead the full dossier in our archive.`;
   } else {
     postBody = `The conversation surrounding ${topic.toLowerCase()} is too often clouded by superficial rhetoric.\n\nIn high-stakes environments, true authority requires grounding in ${lexiconTerms}.\n\nWhen leadership evaluates this challenge, three principles emerge:\n\n1. Structural Reality: Avoid short-term expedients that sacrifice permanent durability.\n2. Telemetry and Evidence: Validate every assertion against verifiable real-world metrics.\n3. Institutional Discipline: Protect core integrity before public posturing.\n\nTrue mastery is recognized not in the volume of claims made, but in the measurable permanence of execution.`;
   }
 
   const selectedHookTemplates = platformHooks.slice(0, 3);
-  const hooks = selectedHookTemplates.map((template, idx) => {
-    let customized = template
-      .replace(/\[X\]/g, topic)
-      .replace(/\[Entity\]/g, brand.name)
-      .replace(/\[Common Belief\]/g, 'standard marketing advice')
-      .replace(/\[Common Scapegoat\]/g, 'market volatility')
-      .replace(/\[Industry\]/g, 'this sector')
-      .replace(/\[Method A\]/g, 'conventional methods')
-      .replace(/\[Method B\]/g, brand.lexicon[0])
-      .replace(/\[Standard Practice\]/g, 'cosmetic fixes')
-      .replace(/\[System\/Organization\]/g, 'organization')
-      .replace(/\[System\]/g, 'the architecture')
-      .replace(/\[Subject\]/g, topic)
-      .replace(/\[State A\]/g, 'operational friction')
-      .replace(/\[State B\]/g, 'definitive clarity')
-      .replace(/\[Industry Gatekeeper\]/g, 'the establishment')
-      .replace(/\[Specific Role\]/g, audience.split('&')[0].trim())
-      .replace(/\[Specific Environment\]/g, 'enterprise governance')
-      .replace(/\[Habit\/Method\]/g, 'superficial tactics')
-      .replace(/\[Specific Negative Consequence\]/g, 'catastrophic failure')
-      .replace(/\[Category\]/g, 'solution')
-      .replace(/\[Effort\/Asset\]/g, 'initiative')
-      .replace(/\[Common Excuse\]/g, 'budget constraints')
-      .replace(/\[Metric A\]/g, 'short-term metrics')
-      .replace(/\[Metric B\]/g, brand.lexicon[0])
-      .replace(/\[Activity\]/g, 'reactive posturing')
-      .replace(/\[Outcome\]/g, topic)
-      .replace(/\[Domain\/Strategy\]/g, brand.lexicon[0])
-      .replace(/\[Task\]/g, 'this workflow')
-      .replace(/\[Niche\]/g, 'our field')
-      .replace(/\[Craft\]/g, 'our discipline')
-      .replace(/\[Popular Trend\/Tool\]/g, 'the latest trend')
-      .replace(/\[Domain\/Field\]/g, 'this field')
-      .replace(/\[Accomplishment\]/g, 'sustainable authority')
-      .replace(/\[Complicated Setup\]/g, 'complex systems')
-      .replace(/\[Conventional Practice\]/g, 'conventional wisdom');
+  const hooks = selectedHookTemplates.length > 0
+    ? selectedHookTemplates.map((template, idx) => {
+        let customized = template
+          .replace(/\[X\]/g, topic)
+          .replace(/\[Entity\]/g, brand.name)
+          .replace(/\[Subject\]/g, topic);
+        return customized;
+      })
+    : [
+        `The conventional approach to ${topic.toLowerCase()} ignores ${brand?.lexicon?.[0] || 'core realities'}.`,
+        `Why most executive strategies around ${topic.toLowerCase()} fail within 90 days.`,
+        `The evidentiary framework for resolving ${topic.toLowerCase()}.`,
+      ];
 
-    if (!customized || customized === template) {
-      customized = `The conventional approach to ${topic.toLowerCase()} ignores ${brand.lexicon[idx % brand.lexicon.length]}.`;
-    }
-    return customized;
-  });
-
-  const visualHeadline = `${brand.lexicon[0].toUpperCase()}: ${topic.split(' ').slice(0, 4).join(' ').toUpperCase()}`;
-  const imagePrompt = `High-contrast cinematic editorial visual, representing ${brand.name}, color palette accents of ${brand.palette.accent} and deep rich background tones, architectural precision, 8k documentary photograph, award-winning editorial composition`;
-  const tags = `#${brand.key.replace('_', '')} #${channel.replace(' ', '')} #${brand.lexicon[0].replace(/\s+/g, '')} #${brand.lexicon[1].replace(/\s+/g, '')} #ExecutiveLeadership`;
-  const voiceoverScript = `[0:00-0:05 Hook]\n"${hooks[0]}"\n\n[0:05-0:18 Context]\n"Too many organizations treat ${topic.toLowerCase()} as a secondary consideration. But in reality, ${brand.lexicon[1].toLowerCase()} dictates the outcome."\n\n[0:18-0:32 Protocol]\n"When we analyze the underlying architecture, the evidentiary standard leaves no room for ambiguity."\n\n[0:32-0:45 Directive]\n"Ground your decisions in measurable reality. Measure what endures."\n\n[Music / Tone: ${brand.posture.slice(0, 40)}]`;
+  const accentColor = brand?.palette?.accent || brand?.colors?.accent || '#f59e0b';
+  const bgColor = brand?.palette?.bg || brand?.colors?.bg || '#0a0a0a';
+  const visualHeadline = `${(brand?.lexicon?.[0] || 'STRATEGY').toUpperCase()}: ${topic.split(' ').slice(0, 4).join(' ').toUpperCase()}`;
+  const imagePrompt = `High-contrast cinematic editorial visual, representing ${brand.name}, color palette accents of ${accentColor} and deep rich background tones, architectural precision, 8k documentary photograph, award-winning editorial composition`;
+  const tags = `#${brand.key.replace('_', '')} #${channel.replace(' ', '')} #${(brand?.lexicon?.[0] || 'Leadership').replace(/\s+/g, '')} #ExecutiveLeadership`;
+  const voiceoverScript = `[0:00-0:05 Hook]\n"${hooks[0]}"\n\n[0:05-0:18 Context]\n"Too many organizations treat ${topic.toLowerCase()} as a secondary consideration. But in reality, ${(brand?.lexicon?.[1] || 'precision').toLowerCase()} dictates the outcome."\n\n[0:18-0:32 Protocol]\n"When we analyze the underlying architecture, the evidentiary standard leaves no room for ambiguity."\n\n[0:32-0:45 Directive]\n"Ground your decisions in measurable reality. Measure what endures."\n\n[Music / Tone: ${brand?.posture?.slice(0, 40) || 'Measured Gravitas'}]`;
 
   return {
     brand_name: brandName,
@@ -179,7 +154,8 @@ function generateFallbackPackage(
   };
 }
 
-// API Routes
+// ==================== DRAFTS CRUD ROUTES ====================
+
 app.get('/api/drafts', (_req, res) => {
   res.json(drafts);
 });
@@ -199,22 +175,16 @@ app.patch('/api/drafts/:id/status', (req, res) => {
   const { id } = req.params;
   const { status, rejection_reason } = req.body;
   const draft = drafts.find((d) => d.id === id);
-  if (!draft) {
-    return res.status(404).json({ error: 'Draft not found' });
-  }
+  if (!draft) return res.status(404).json({ error: 'Draft not found' });
   draft.status = status;
-  if (rejection_reason !== undefined) {
-    draft.rejection_reason = rejection_reason;
-  }
+  if (rejection_reason !== undefined) draft.rejection_reason = rejection_reason;
   res.json(draft);
 });
 
 app.put('/api/drafts/:id', (req, res) => {
   const { id } = req.params;
   const index = drafts.findIndex((d) => d.id === id);
-  if (index === -1) {
-    return res.status(404).json({ error: 'Draft not found' });
-  }
+  if (index === -1) return res.status(404).json({ error: 'Draft not found' });
   drafts[index] = { ...drafts[index], ...req.body };
   res.json(drafts[index]);
 });
@@ -226,25 +196,24 @@ app.delete('/api/drafts/:id', (req, res) => {
 });
 
 app.get('/api/hooks', (_req, res) => {
-  res.json(HOOK_LIBRARY);
+  res.json(HOOK_LIBRARY || []);
 });
 
-// Real AI Generation Route
+// ==================== AI GENERATION ROUTES ====================
+
 app.post('/api/generate', async (req, res) => {
   const { brand_key, audience, channel, topic, magazine_column } = req.body;
   const brand = BRANDS[brand_key as BrandKey];
 
-  if (!brand) {
-    return res.status(400).json({ error: 'Invalid brand key' });
-  }
+  if (!brand) return res.status(400).json({ error: 'Invalid brand key' });
 
   const prompt = `
 Brand: ${brand.name} (${brand_key})
 Brand Persona: ${brand.archetype}
 Rhetorical Posture: ${brand.posture}
-Mandatory Lexicon Anchors: ${brand.lexicon.join(', ')}
+Mandatory Lexicon Anchors: ${Array.isArray(brand.lexicon) ? brand.lexicon.join(', ') : ''}
 Negative Constraints: ${brand.negativeConstraints}
-Forbidden Slang/Terms: ${[...brand.forbiddenWords, 'delve', 'tapestry', 'game-changer', 'beacon', 'unlock', 'elevate'].join(', ')}
+Forbidden Slang/Terms: ${[...(brand.forbiddenWords || []), 'delve', 'tapestry', 'game-changer', 'beacon', 'unlock', 'elevate'].join(', ')}
 ${magazine_column ? `Magazine Column / Section Desk: ${magazine_column}` : ''}
 
 Target Audience Segment: ${audience}
@@ -286,11 +255,11 @@ Generate a complete production package conforming strictly to this JSON schema:
         audience,
         topic,
         magazine_column: magazine_column || parsed.magazine_column || undefined,
-        hook_options: parsed.hook_options || [`New directive in ${brand.lexicon[0]}`],
+        hook_options: parsed.hook_options || [`New directive in ${brand.lexicon?.[0] || 'strategy'}`],
         selected_hook: parsed.hook_options?.[0] || '',
         post_body: parsed.post_body || '',
         voiceover_script: parsed.voiceover_script || '',
-        visual_headline: parsed.visual_headline || `${brand.lexicon[0]} Protocol`,
+        visual_headline: parsed.visual_headline || `${brand.lexicon?.[0] || 'Executive'} Protocol`,
         image_prompt: parsed.image_prompt || '',
         hashtags: parsed.hashtags || '',
         status: 'pending_review',
@@ -321,22 +290,19 @@ Generate a complete production package conforming strictly to this JSON schema:
   res.json({ draft: fallbackDraft, source: 'studio-autonomous-engine' });
 });
 
-// AI Topic Suggestion Route
 app.post('/api/ai/suggest-topics', async (req, res) => {
   const { brand_key, audience } = req.body;
   const brand = BRANDS[brand_key as BrandKey];
 
-  if (!brand) {
-    return res.status(400).json({ error: 'Invalid brand key' });
-  }
+  if (!brand) return res.status(400).json({ error: 'Invalid brand key' });
 
   const prompt = `
 You are the Executive Editor for ${brand.name}.
 Archetype: ${brand.archetype}
 Rhetorical Posture: ${brand.posture}
-Mandatory Lexicon Anchors: ${brand.lexicon.join(', ')}
+Mandatory Lexicon Anchors: ${Array.isArray(brand.lexicon) ? brand.lexicon.join(', ') : ''}
 Negative Constraints: ${brand.negativeConstraints}
-Target Audience: ${audience || brand.audiences[0]}
+Target Audience: ${audience || brand.audiences?.[0]}
 
 Generate 3 urgent, contrarian, and high-impact editorial angles/topics for this brand.
 Each angle should be 10-25 words, concrete, intellectually arresting, and grounded in real-world friction.
@@ -374,21 +340,18 @@ Respond in JSON format:
   }
 
   const fallback = [
-    `${brand.lexicon[0]} operational reality vs superficial market assumptions`,
-    `Why conventional frameworks fail when evaluating ${brand.lexicon[1].toLowerCase()}`,
-    `The structural risk of ignoring ${brand.lexicon[2] ? brand.lexicon[2].toLowerCase() : brand.lexicon[0].toLowerCase()} in high-stakes environments`,
+    `${brand.lexicon?.[0] || 'Strategic'} operational reality vs superficial market assumptions`,
+    `Why conventional frameworks fail when evaluating ${brand.lexicon?.[1]?.toLowerCase() || 'execution'}`,
+    `The structural risk of ignoring ${brand.lexicon?.[2] ? brand.lexicon[2].toLowerCase() : brand.lexicon?.[0]?.toLowerCase() || 'metrics'} in high-stakes environments`,
   ];
   res.json({ topics: fallback, source: 'brand-lexicon-heuristics' });
 });
 
-// AI Polish / Refinement Route
 app.post('/api/ai/refine', async (req, res) => {
   const { brand_key, channel, action, current_body, current_hook, current_headline, user_instruction } = req.body;
   const brand = BRANDS[brand_key as BrandKey];
 
-  if (!brand) {
-    return res.status(400).json({ error: 'Invalid brand key' });
-  }
+  if (!brand) return res.status(400).json({ error: 'Invalid brand key' });
 
   const spec = CHANNEL_SPECS[channel as Channel] || CHANNEL_SPECS.LinkedIn;
   const charLimit = spec.charLimit || 2000;
@@ -401,7 +364,7 @@ app.post('/api/ai/refine', async (req, res) => {
   } else if (action === 'new_hooks') {
     directive = `Generate 3 completely new, high-CTR algorithmic hooks calibrated for ${channel} audience psychology.`;
   } else if (action === 'eliminate_fluff') {
-    directive = `Audit and eradicate any AI filler words, corporate jargon, or brand forbidden words (${brand.forbiddenWords.join(', ')}). Reinforce mandatory lexicon anchors: ${brand.lexicon.join(', ')}.`;
+    directive = `Audit and eradicate any AI filler words, corporate jargon, or brand forbidden words (${(brand.forbiddenWords || []).join(', ')}). Reinforce mandatory lexicon anchors: ${(brand.lexicon || []).join(', ')}.`;
   } else {
     directive = user_instruction || 'Elevate the rhetorical force and platform alignment.';
   }
@@ -410,7 +373,7 @@ app.post('/api/ai/refine', async (req, res) => {
 Brand: ${brand.name}
 Archetype: ${brand.archetype}
 Posture: ${brand.posture}
-Mandatory Lexicon: ${brand.lexicon.join(', ')}
+Mandatory Lexicon: ${(brand.lexicon || []).join(', ')}
 Negative Constraints: ${brand.negativeConstraints}
 Channel: ${channel} (Max characters: ${charLimit})
 
@@ -421,13 +384,6 @@ Body Copy: ${current_body || ''}
 
 REFINEMENT DIRECTIVE:
 ${directive}
-
-CRITICAL RULES:
-- If channel is Bluesky or Threads: Post body MUST be STRICTLY under 300 characters.
-- If channel is Pinterest: Post body MUST be STRICTLY under 800 characters.
-- If channel is X: Post body MUST be under 260 characters.
-- If channel is TikTok: Post body MUST be under 250 characters with a 3-second visual cue.
-- Never use: delve, tapestry, game-changer, beacon, unlock, elevate.
 
 Respond strictly with JSON:
 {
@@ -465,27 +421,24 @@ Respond strictly with JSON:
   res.json({
     result: {
       refined_body: trimmedBody,
-      refined_headline: current_headline || `${brand.lexicon[0]} Protocol`,
+      refined_headline: current_headline || `${brand.lexicon?.[0] || 'Executive'} Protocol`,
       hook_options: [
-        `The real problem with ${current_headline || 'this'} isn't execution—it's ${brand.lexicon[0].toLowerCase()}.`,
-        `Conventional assumptions about this ignore ${brand.lexicon[1] || brand.lexicon[0]}.`,
-        `Before signing off on another strategy deck, verify ${brand.lexicon[0].toLowerCase()}.`,
+        `The real problem with ${current_headline || 'this'} isn't execution—it's ${(brand.lexicon?.[0] || 'alignment').toLowerCase()}.`,
+        `Conventional assumptions about this ignore ${brand.lexicon?.[1] || brand.lexicon?.[0] || 'core data'}.`,
+        `Before signing off on another strategy deck, verify ${(brand.lexicon?.[0] || 'metrics').toLowerCase()}.`,
       ],
-      selected_hook: `The real problem with ${current_headline || 'this'} isn't execution—it's ${brand.lexicon[0].toLowerCase()}.`,
+      selected_hook: `The real problem with ${current_headline || 'this'} isn't execution—it's ${(brand.lexicon?.[0] || 'alignment').toLowerCase()}.`,
       refinement_notes: 'Heuristic alignment with brand voice anchors applied.',
     },
     source: 'fallback-rules',
   });
 });
 
-// AI Cross-Channel Adapt Route
 app.post('/api/ai/adapt-channel', async (req, res) => {
   const { brand_key, target_channel, post_body, topic, original_hook } = req.body;
   const brand = BRANDS[brand_key as BrandKey];
 
-  if (!brand) {
-    return res.status(400).json({ error: 'Invalid brand key' });
-  }
+  if (!brand) return res.status(400).json({ error: 'Invalid brand key' });
 
   const spec = CHANNEL_SPECS[target_channel as Channel] || CHANNEL_SPECS.LinkedIn;
   const charLimit = spec.charLimit || 2000;
@@ -493,7 +446,7 @@ app.post('/api/ai/adapt-channel', async (req, res) => {
   const prompt = `
 Brand: ${brand.name}
 Archetype: ${brand.archetype}
-Mandatory Lexicon: ${brand.lexicon.join(', ')}
+Mandatory Lexicon: ${(brand.lexicon || []).join(', ')}
 Original Topic: ${topic}
 Original Hook: ${original_hook || ''}
 Original Copy: ${post_body}
@@ -502,11 +455,6 @@ Adapt this editorial content natively for ${target_channel}.
 TARGET CHANNEL CONSTRAINTS:
 - Character Limit: ${charLimit} characters.
 - Format: ${spec.desc}
-${target_channel === 'Bluesky' ? '- STRICTLY UNDER 300 CHARACTERS. Sharp, intellectual, zero fluff.' : ''}
-${target_channel === 'Threads' ? '- STRICTLY UNDER 300 CHARACTERS. Provocative tension, invites perspective.' : ''}
-${target_channel === 'Pinterest' ? '- STRICTLY UNDER 800 CHARACTERS. Clear bulleted value breakdown and searchable blueprint tags.' : ''}
-${target_channel === 'TikTok' ? '- Under 250 characters with a 3-second visual video retention hook.' : ''}
-${target_channel === 'X' ? '- Under 260 characters. Stark contrarian thesis.' : ''}
 
 Respond with JSON:
 {
@@ -539,9 +487,9 @@ Respond with JSON:
   const fallbackPkg = generateFallbackPackage(
     brand.key,
     brand.name,
-    brand.audiences[0],
+    brand.audiences?.[0] || 'Executive',
     target_channel as Channel,
-    topic || brand.sampleTopics[0]
+    topic || brand.sampleTopics?.[0] || 'Leadership'
   );
   res.json({
     result: {
@@ -554,7 +502,6 @@ Respond with JSON:
   });
 });
 
-// AI Voiceover Studio TTS Route
 app.post('/api/ai/tts', async (req, res) => {
   const { script, voice_name, style_prompt } = req.body;
   const selectedVoice = voice_name || 'Kore';
@@ -566,9 +513,7 @@ app.post('/api/ai/tts', async (req, res) => {
     .replace(/"/g, '')
     .trim();
 
-  if (!cleanScript) {
-    return res.status(400).json({ error: 'Empty script' });
-  }
+  if (!cleanScript) return res.status(400).json({ error: 'Empty script' });
 
   if (aiClient) {
     try {
@@ -620,7 +565,6 @@ app.post('/api/ai/tts', async (req, res) => {
   });
 });
 
-// Brand Rules Retrieval Route
 app.get('/api/brands/:brand_key/rules', (req, res) => {
   const { brand_key } = req.params;
   const brand = BRANDS[brand_key as BrandKey];
@@ -628,31 +572,33 @@ app.get('/api/brands/:brand_key/rules', (req, res) => {
   res.json({
     brand_key: brand.key,
     brand_name: brand.name,
-    pictureRules: brand.pictureRules,
-    videoRules: brand.videoRules,
+    pictureRules: brand.pictureRules || {},
+    videoRules: brand.videoRules || {},
   });
 });
 
-// AI Picture Generator Route
 app.post('/api/ai/picture-generate', async (req, res) => {
   const { brand_key, topic, headline, aspect_ratio, custom_directive } = req.body;
   const brand = BRANDS[brand_key as BrandKey];
   if (!brand) return res.status(400).json({ error: 'Invalid brand key' });
 
-  const chosenAr = aspect_ratio || brand.pictureRules.aspectRatios[0] || '1:1';
-  const rules = brand.pictureRules;
+  const chosenAr = aspect_ratio || brand.pictureRules?.aspectRatios?.[0] || '1:1';
+  const rules = brand.pictureRules || {};
+
+  const accentColor = brand?.palette?.accent || brand?.colors?.accent || '#f59e0b';
+  const bgColor = brand?.palette?.bg || brand?.colors?.bg || '#0a0a0a';
 
   const prompt = `
 You are the Executive Visual Art Director for ${brand.name}.
-Aesthetic Style: ${rules.aestheticStyle}
-Lighting & Camera: ${rules.lightingAndCamera}
-Color Grading: ${rules.colorGradingDirective}
-Permitted Subjects: ${rules.permittedSubjects.join(', ')}
-Strict Forbidden Tropes (Anti-AI Slop): ${rules.forbiddenVisualTropes.join(', ')}
-Brand Colors: Background ${brand.palette.names.bg} (${brand.palette.bg}), Accent ${brand.palette.names.accent} (${brand.palette.accent})
+Aesthetic Style: ${rules.aestheticStyle || 'Cinematic Documentary'}
+Lighting & Camera: ${rules.lightingAndCamera || 'Low key architectural lighting'}
+Color Grading: ${rules.colorGradingDirective || 'Muted high contrast'}
+Permitted Subjects: ${(rules.permittedSubjects || []).join(', ')}
+Strict Forbidden Tropes (Anti-AI Slop): ${(rules.forbiddenVisualTropes || []).join(', ')}
+Brand Colors: Background ${bgColor}, Accent ${accentColor}
 
-Input Topic: ${topic || brand.sampleTopics[0]}
-Headline Overlay: ${headline || `${brand.lexicon[0]} Protocol`}
+Input Topic: ${topic || brand.sampleTopics?.[0] || 'Strategic Leadership'}
+Headline Overlay: ${headline || `${brand.lexicon?.[0] || 'Executive'} Protocol`}
 Aspect Ratio: ${chosenAr}
 User Directive: ${custom_directive || 'Default brand standard'}
 
@@ -664,7 +610,7 @@ Generate an optimized, production-grade image prompt package conforming strictly
   "artistic_direction": {
     "lighting": "Specific lighting setup",
     "focal_length": "Camera and lens choice",
-    "color_palette_hex": ["${brand.palette.bg}", "${brand.palette.accent}", "${brand.palette.secondary}"]
+    "color_palette_hex": ["${bgColor}", "${accentColor}"]
   },
   "compliance_audit": {
     "anti_slop_passed": true,
@@ -695,13 +641,13 @@ Generate an optimized, production-grade image prompt package conforming strictly
 
   res.json({
     result: {
-      imagen_prompt: `${rules.promptTemplate} Featuring architectural focus on ${topic || brand.sampleTopics[0]}, illuminated with ${brand.palette.names.accent} highlights on ${brand.palette.names.bg}. --ar ${chosenAr}`,
-      negative_prompt: rules.forbiddenVisualTropes.join(', '),
-      visual_concept: `Artistic visual for ${brand.name} highlighting ${brand.lexicon[0]} with ${rules.aestheticStyle}.`,
+      imagen_prompt: `${rules.promptTemplate || 'Cinematic architectural render'} Featuring architectural focus on ${topic || brand.sampleTopics?.[0] || 'strategy'}, illuminated with ${accentColor} highlights on ${bgColor}. --ar ${chosenAr}`,
+      negative_prompt: (rules.forbiddenVisualTropes || []).join(', ') || 'stock photos, low resolution, plastic',
+      visual_concept: `Artistic visual for ${brand.name} highlighting ${brand.lexicon?.[0] || 'strategy'} with ${rules.aestheticStyle || 'cinematic style'}.`,
       artistic_direction: {
-        lighting: rules.lightingAndCamera,
+        lighting: rules.lightingAndCamera || 'Documentary side lighting',
         focal_length: '35mm Leica Prime',
-        color_palette_hex: [brand.palette.bg, brand.palette.accent, brand.palette.secondary],
+        color_palette_hex: [bgColor, accentColor],
       },
       compliance_audit: {
         anti_slop_passed: true,
@@ -713,21 +659,20 @@ Generate an optimized, production-grade image prompt package conforming strictly
   });
 });
 
-// AI Video Generator & Motion Storyboard Route
 app.post('/api/ai/video-storyboard', async (req, res) => {
   const { brand_key, topic, video_length } = req.body;
   const brand = BRANDS[brand_key as BrandKey];
   if (!brand) return res.status(400).json({ error: 'Invalid brand key' });
 
-  const rules = brand.videoRules;
+  const rules = brand.videoRules || {};
 
   const prompt = `
 You are the Executive Video Director for ${brand.name}.
-Target Pace & Rhythm: ${rules.pacingAndRhythm}
-Camera Movement: ${rules.cameraMotions.join(', ')}
-Audio Aesthetic: ${rules.audioDesign}
+Target Pace & Rhythm: ${rules.pacingAndRhythm || 'Measured, steady'}
+Camera Movement: ${(rules.cameraMotions || []).join(', ')}
+Audio Aesthetic: ${rules.audioDesign || 'Low frequency ambient drone'}
 
-Topic: ${topic || brand.sampleTopics[0]}
+Topic: ${topic || brand.sampleTopics?.[0] || 'Leadership'}
 Requested Length: ${video_length || '30s'}
 
 Generate a kinetic motion storyboard package conforming strictly to this JSON format:
@@ -738,10 +683,22 @@ Generate a kinetic motion storyboard package conforming strictly to this JSON fo
       "visual_scene": "Description of opening shot",
       "camera_direction": "Camera motion choice",
       "audio_cue": "Voiceover or atmospheric sound"
+    },
+    {
+      "timestamp": "0:05-0:20",
+      "visual_scene": "Description of core argument visual",
+      "camera_direction": "Camera motion choice",
+      "audio_cue": "Voiceover narration"
+    },
+    {
+      "timestamp": "0:20-0:30",
+      "visual_scene": "Description of closing directive",
+      "camera_direction": "Static shot with graphic overlay",
+      "audio_cue": "Fade to silence"
     }
   ],
-  "veo_prompt": "Prompt for video generation model",
-  "editorial_notes": "Director's notes on pacing and color"
+  "pacing": "Measured and authoritative",
+  "recommended_audio": "Low-frequency ambient drone with crisp narration"
 }
 `;
 
@@ -764,23 +721,55 @@ Generate a kinetic motion storyboard package conforming strictly to this JSON fo
     }
   }
 
+  const storyboardFallback = [
+    {
+      timestamp: '0:00-0:05',
+      visual_scene: `Opening shot focusing on ${topic || 'strategic infrastructure'}.`,
+      camera_direction: 'Slow forward dolly',
+      audio_cue: 'Executive narration voiceover',
+    },
+    {
+      timestamp: '0:05-0:20',
+      visual_scene: 'Data telemetry overlay showcasing real-world performance metrics.',
+      camera_direction: 'Static macro shot',
+      audio_cue: 'Subtle ambient pad',
+    },
+    {
+      timestamp: '0:20-0:30',
+      visual_scene: `Closing brand mark for ${brand.name}.`,
+      camera_direction: 'Slow pull-back shot',
+      audio_cue: 'Fade to black',
+    },
+  ];
+
   res.json({
     result: {
-      storyboard: [
-        {
-          timestamp: '0:00-0:05',
-          visual_scene: `Stark macro opening focusing on ${brand.lexicon[0]} architectural details.`,
-          camera_direction: rules.cameraMotions[0] || 'Slow push-in',
-          audio_cue: 'Deep atmospheric bass resonance with crisp VO hook.',
-        },
-      ],
-      veo_prompt: `Cinematic footage of ${brand.name} aesthetic, ${rules.pacingAndRhythm}, 8k video.`,
-      editorial_notes: 'Maintain stark contrast and brand pacing throughout.',
+      storyboard: storyboardFallback,
+      pacing: 'Measured and authoritative',
+      recommended_audio: 'Low-frequency ambient drone with crisp narration',
     },
-    source: 'brand-video-rules-engine',
+    source: 'fallback-rules',
   });
 });
 
+// ==================== STATIC PRODUCTION SERVING ====================
+
+const distPath = path.join(__dirname, 'dist');
+app.use(express.static(distPath));
+
+// Fallback all non-API GET requests to index.html for Single Page Application routing
+app.get('*', (req, res) => {
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: `API endpoint ${req.path} not found` });
+  }
+  res.sendFile(path.join(distPath, 'index.html'), (err) => {
+    if (err) {
+      res.status(500).send('Production build dist/index.html not found.');
+    }
+  });
+});
+
+// Start Express Server
 app.listen(PORT, () => {
-  console.log(`Server running dynamically on port ${PORT}`);
+  console.log(`Server listening on http://localhost:${PORT}`);
 });
