@@ -1,13 +1,15 @@
 {
-  "name": "react-example",
+  "name": "yazooblu-production-studio",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build",
-    "start": "tsx server.ts",
-    "clean": "rm -rf dist server.js",
+    "build:client": "vite build",
+    "build:server": "esbuild server.ts --bundle --platform=node --format=esm --outfile=dist/server.js",
+    "build": "npm run clean && npm run build:client && npm run build:server",
+    "start": "node dist/server.js",
+    "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
@@ -24,6 +26,7 @@
     "vite": "^8.3.0"
   },
   "devDependencies": {
+    "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
@@ -31,7 +34,6 @@
     "esbuild": "^0.25.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
-    "typescript": "^7.0.2",
-    "@types/express": "^4.17.21"
+    "typescript": "^7.0.2"
   }
 }
