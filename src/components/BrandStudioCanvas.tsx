@@ -95,7 +95,7 @@ export const BrandStudioCanvas: React.FC<BrandStudioCanvasProps> = ({
   });
   const selectedColumn = brand.columns?.find((c) => c.id === selectedColumnId) || null;
 
-  // Stage 1: Strategy State
+    // Stage 1: Strategy State
   const [audience, setAudience] = useState<string>(brand.audiences[0]);
   const [channel, setChannel] = useState<Channel>(initialChannel || 'LinkedIn');
   const [topic, setTopic] = useState<string>(initialTopic || brand.sampleTopics[0]);
