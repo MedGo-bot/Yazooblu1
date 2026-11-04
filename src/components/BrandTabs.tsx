@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
-import { BRANDS, BrandKey } from '../types';
+import { BRANDS, BrandKey, BrandConfig } from '../types';
 import { BrandLogo } from './BrandLogo';
 import { BrandIdentityModal } from './BrandIdentityModal';
 import {
   Palette,
-  ExternalLink,
   ChevronRight,
-  Sparkles,
 } from 'lucide-react';
 
 interface BrandTabsProps {
@@ -22,7 +20,7 @@ const BRAND_SHORT_NAMES: Record<BrandKey, string> = {
   creatives: 'Consortium of Creatives',
   bhw_pr: 'BH&W PR Firm',
   porch_md: 'Porch MD',
-  hilton_head: 'Hilton Head Luxury Shuttles',
+  hilton_head: 'Hilton Head Leadership Summit',
 };
 
 const ORDERED_BRAND_KEYS: BrandKey[] = [
@@ -76,9 +74,32 @@ export const BrandTabs: React.FC<BrandTabsProps> = ({
       {/* Large Brand Tabs Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3">
         {brandKeys.map((key) => {
-          const brand = BRANDS[key];
+          const rawBrand: Partial<BrandConfig> = BRANDS[key] || {};
           const isSelected = selectedBrandKey === key;
           const counts = brandCounts?.[key];
+
+          // Safe color resolution across all 7 brand formats
+          const accentColor =
+            rawBrand.palette?.accent ||
+            rawBrand.colors?.accent ||
+            '#D97706';
+
+          const secondaryColor =
+            rawBrand.palette?.secondary ||
+            rawBrand.colors?.secondary ||
+            '#4B5563';
+
+          const bgColor =
+            rawBrand.palette?.bg ||
+            rawBrand.colors?.primary ||
+            '#0F172A';
+
+          const accentName = rawBrand.palette?.names?.accent || 'Accent';
+          const secondaryName = rawBrand.palette?.names?.secondary || 'Secondary';
+          const bgName = rawBrand.palette?.names?.bg || 'Base';
+
+          const brandName = rawBrand.name || BRAND_SHORT_NAMES[key] || key;
+          const archetype = rawBrand.archetype || rawBrand.posture || 'Sovereign Brand';
 
           return (
             <div
@@ -89,9 +110,9 @@ export const BrandTabs: React.FC<BrandTabsProps> = ({
                   : 'bg-neutral-950/75 border-neutral-800/80 hover:bg-neutral-900/60 hover:border-neutral-700/80'
               }`}
               style={{
-                borderColor: isSelected ? brand.palette.accent : undefined,
+                borderColor: isSelected ? accentColor : undefined,
                 boxShadow: isSelected
-                  ? `0 12px 28px -6px ${brand.palette.accent}25`
+                  ? `0 12px 28px -6px ${accentColor}25`
                   : undefined,
               }}
             >
@@ -99,7 +120,7 @@ export const BrandTabs: React.FC<BrandTabsProps> = ({
               <div
                 className="w-full h-1.5 transition-all"
                 style={{
-                  backgroundColor: brand.palette.accent,
+                  backgroundColor: accentColor,
                   opacity: isSelected ? 1 : 0.45,
                 }}
               />
@@ -115,8 +136,8 @@ export const BrandTabs: React.FC<BrandTabsProps> = ({
                   <div
                     className="w-10 h-10 rounded-lg overflow-hidden flex items-center justify-center p-0.5 border shadow-sm transition-transform group-hover:scale-105 shrink-0"
                     style={{
-                      borderColor: `${brand.palette.accent}40`,
-                      backgroundColor: brand.palette.bg,
+                      borderColor: `${accentColor}40`,
+                      backgroundColor: bgColor,
                     }}
                   >
                     <BrandLogo brandKey={key} size="sm" />
@@ -126,8 +147,8 @@ export const BrandTabs: React.FC<BrandTabsProps> = ({
                     <span
                       className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded uppercase"
                       style={{
-                        backgroundColor: `${brand.palette.accent}25`,
-                        color: brand.palette.accent,
+                        backgroundColor: `${accentColor}25`,
+                        color: accentColor,
                       }}
                     >
                       Active Studio
@@ -146,10 +167,10 @@ export const BrandTabs: React.FC<BrandTabsProps> = ({
                 {/* Brand Name & Archetype */}
                 <div className="mt-0.5">
                   <div className="font-bold text-xs text-white leading-tight truncate">
-                    {BRAND_SHORT_NAMES[key]}
+                    {BRAND_SHORT_NAMES[key] || brandName}
                   </div>
                   <div className="text-[11px] text-neutral-400 leading-snug line-clamp-2 mt-1">
-                    {brand.archetype}
+                    {archetype}
                   </div>
                 </div>
 
@@ -158,18 +179,18 @@ export const BrandTabs: React.FC<BrandTabsProps> = ({
                   <div className="flex items-center gap-1">
                     <span
                       className="w-2.5 h-2.5 rounded-full border border-white/20"
-                      style={{ backgroundColor: brand.palette.accent }}
-                      title={`Accent: ${brand.palette.names.accent} (${brand.palette.accent})`}
+                      style={{ backgroundColor: accentColor }}
+                      title={`Accent: ${accentName} (${accentColor})`}
                     />
                     <span
                       className="w-2.5 h-2.5 rounded-full border border-white/20"
-                      style={{ backgroundColor: brand.palette.secondary }}
-                      title={`Secondary: ${brand.palette.names.secondary} (${brand.palette.secondary})`}
+                      style={{ backgroundColor: secondaryColor }}
+                      title={`Secondary: ${secondaryName} (${secondaryColor})`}
                     />
                     <span
                       className="w-2.5 h-2.5 rounded-full border border-white/20"
-                      style={{ backgroundColor: brand.palette.bg }}
-                      title={`Background: ${brand.palette.names.bg} (${brand.palette.bg})`}
+                      style={{ backgroundColor: bgColor }}
+                      title={`Background: ${bgName} (${bgColor})`}
                     />
                   </div>
 
@@ -188,7 +209,7 @@ export const BrandTabs: React.FC<BrandTabsProps> = ({
                     setModalBrandKey(key);
                   }}
                   className="text-neutral-400 hover:text-white flex items-center gap-1 transition cursor-pointer font-medium"
-                  title={`Inspect ${brand.name} official logo and color theme`}
+                  title={`Inspect ${brandName} official logo and color theme`}
                 >
                   <Palette className="w-3 h-3 text-amber-400" />
                   <span>Logo & Theme</span>
@@ -196,9 +217,9 @@ export const BrandTabs: React.FC<BrandTabsProps> = ({
 
                 <span
                   className="font-mono text-[9px] truncate max-w-[70px]"
-                  style={{ color: brand.palette.accent }}
+                  style={{ color: accentColor }}
                 >
-                  {brand.palette.accent}
+                  {accentColor}
                 </span>
               </div>
             </div>
@@ -208,3 +229,5 @@ export const BrandTabs: React.FC<BrandTabsProps> = ({
     </div>
   );
 };
+
+export default BrandTabs;
