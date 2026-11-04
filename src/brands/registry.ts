@@ -1,5 +1,5 @@
 // src/brands/registry.ts
-import { BrandConfig } from '../types';
+import type { BrandConfig } from '../types';
 import { besOutkastBrand } from './bes_outkast';
 import { bhwPrBrand } from './bhw_pr';
 import { nuecofabBrand } from './nuecofab';
@@ -29,3 +29,4 @@ export * from './porch_md';
 export * from './fyrrion';
 export * from './creatives';
 export * from './hilton_head';
+
