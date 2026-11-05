@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Copy,
@@ -6,17 +6,14 @@ import {
   Sparkles,
   Search,
   ArrowRight,
-  Hash,
-  Layers,
-  HelpCircle,
 } from 'lucide-react';
-import { HOOK_LIBRARY, CHANNEL_SPECS, Channel, BrandMeta } from '../types';
+import { HOOK_LIBRARY, Channel, BrandConfig, HookTemplate } from '../types';
 
 interface HookLibraryModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectHook: (hookText: string) => void;
-  activeBrand: BrandMeta;
+  activeBrand?: BrandConfig | any;
   defaultChannel?: Channel;
 }
 
@@ -28,15 +25,76 @@ export const HookLibraryModal: React.FC<HookLibraryModalProps> = ({
   defaultChannel = 'LinkedIn',
 }) => {
   const [selectedPlatform, setSelectedPlatform] = useState<string>(
-    defaultChannel.toLowerCase().split(' ')[0]
+    (defaultChannel || 'LinkedIn').toLowerCase().split(' ')[0]
   );
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [dynamicHooks, setDynamicHooks] = useState<Record<string, string[]>>({});
+
+  // Fetch live hooks from Neon API endpoint on modal open
+  useEffect(() => {
+    let isMounted = true;
+    if (!isOpen) return;
+
+    const fetchHooksFromNeon = async () => {
+      try {
+        const res = await fetch('/api/hooks');
+        const contentType = res.headers.get('content-type');
+        
+        if (res.ok && contentType && contentType.includes('application/json')) {
+          const data = await res.json();
+          if (isMounted) {
+            if (Array.isArray(data)) {
+              // Convert flat HookTemplate[] array from Neon to dictionary grouped by channel
+              const grouped: Record<string, string[]> = {};
+              data.forEach((item: HookTemplate) => {
+                const key = (item.channel_key || 'linkedin').toLowerCase();
+                if (!grouped[key]) grouped[key] = [];
+                if (item.hook_text) grouped[key].push(item.hook_text);
+              });
+              setDynamicHooks(grouped);
+            } else if (data && typeof data === 'object') {
+              setDynamicHooks(data);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to fetch hooks from API, falling back to local library:', err);
+      }
+    };
+
+    fetchHooksFromNeon();
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const platforms = Object.keys(HOOK_LIBRARY);
-  const currentHooks = HOOK_LIBRARY[selectedPlatform] || [];
+  // Platform keys definition with robust fallback checks
+  const platformList = ['linkedin', 'x', 'threads', 'bluesky', 'pinterest', 'tiktok', 'instagram', 'youtube', 'facebook'];
+  
+  // Safe hook getter that checks both dynamic state and static fallback
+  const getHooksForPlatform = (platformKey: string): string[] => {
+    if (dynamicHooks[platformKey] && Array.isArray(dynamicHooks[platformKey])) {
+      return dynamicHooks[platformKey];
+    }
+    
+    // Check if HOOK_LIBRARY is an object dictionary
+    if (HOOK_LIBRARY && typeof HOOK_LIBRARY === 'object' && !Array.isArray(HOOK_LIBRARY)) {
+      const raw = (HOOK_LIBRARY as any)[platformKey];
+      if (Array.isArray(raw)) return raw;
+    }
+
+    // Default fallback templates
+    return [
+      `When evaluating ${platformKey}, standard assumptions collapse.`,
+      `Why conventional executive strategies fail within 90 days.`,
+      `The evidentiary framework for resolving structural friction.`
+    ];
+  };
+
+  const currentHooks = getHooksForPlatform(selectedPlatform);
 
   const filteredHooks = currentHooks.filter((hook) =>
     searchQuery.trim()
@@ -51,7 +109,7 @@ export const HookLibraryModal: React.FC<HookLibraryModalProps> = ({
   };
 
   const getCharLimitInfo = (platformKey: string) => {
-    switch (platformKey) {
+    switch (platformKey.toLowerCase()) {
       case 'bluesky':
         return { limit: 300, desc: '300 character limit • Intellectual discourse' };
       case 'threads':
@@ -76,6 +134,7 @@ export const HookLibraryModal: React.FC<HookLibraryModalProps> = ({
   };
 
   const currentInfo = getCharLimitInfo(selectedPlatform);
+  const accentColor = activeBrand?.palette?.accent || activeBrand?.colors?.accent || '#f59e0b';
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
@@ -101,6 +160,7 @@ export const HookLibraryModal: React.FC<HookLibraryModalProps> = ({
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="p-2 rounded-xl text-neutral-400 hover:text-white hover:bg-neutral-800 transition cursor-pointer"
           >
@@ -110,11 +170,12 @@ export const HookLibraryModal: React.FC<HookLibraryModalProps> = ({
 
         {/* Platform Selection Tabs */}
         <div className="px-5 pt-3 border-b border-neutral-800 flex gap-1.5 overflow-x-auto scrollbar-none bg-neutral-950/40">
-          {platforms.map((plat) => {
+          {platformList.map((plat) => {
             const isSelected = selectedPlatform === plat;
             const info = getCharLimitInfo(plat);
             return (
               <button
+                type="button"
                 key={plat}
                 onClick={() => setSelectedPlatform(plat)}
                 className={`px-3 py-2 rounded-t-xl text-xs font-semibold uppercase tracking-wider transition whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
@@ -126,7 +187,7 @@ export const HookLibraryModal: React.FC<HookLibraryModalProps> = ({
                 <span>{plat}</span>
                 {info.limit && (
                   <span
-                    className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
+                    className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
                       info.limit <= 300
                         ? 'bg-cyan-500/20 text-cyan-300'
                         : info.limit <= 800
@@ -142,7 +203,7 @@ export const HookLibraryModal: React.FC<HookLibraryModalProps> = ({
           })}
         </div>
 
-        {/* Platform Character Constraint Info & Search */}
+        {/* Character Constraint Info & Search */}
         <div className="p-4 bg-neutral-950 border-b border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-xs">
             <span className="font-mono text-amber-400 uppercase font-bold">
@@ -196,6 +257,7 @@ export const HookLibraryModal: React.FC<HookLibraryModalProps> = ({
 
                 <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
                   <button
+                    type="button"
                     onClick={() => handleCopy(hook, idx)}
                     className="px-2.5 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs flex items-center gap-1 transition cursor-pointer"
                     title="Copy template"
@@ -209,6 +271,7 @@ export const HookLibraryModal: React.FC<HookLibraryModalProps> = ({
                   </button>
 
                   <button
+                    type="button"
                     onClick={() => {
                       onSelectHook(hook);
                       onClose();
@@ -229,13 +292,14 @@ export const HookLibraryModal: React.FC<HookLibraryModalProps> = ({
           <div className="flex items-center gap-1.5">
             <span
               className="w-2 h-2 rounded-full"
-              style={{ backgroundColor: activeBrand.palette.accent }}
+              style={{ backgroundColor: accentColor }}
             />
             <span>
-              Active Brand: <strong className="text-white">{activeBrand.name}</strong>
+              Active Brand: <strong className="text-white">{activeBrand?.name || 'Default Brand'}</strong>
             </span>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 cursor-pointer font-medium"
           >
@@ -246,3 +310,5 @@ export const HookLibraryModal: React.FC<HookLibraryModalProps> = ({
     </div>
   );
 };
+
+export default HookLibraryModal;
