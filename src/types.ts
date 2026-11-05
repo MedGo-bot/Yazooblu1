@@ -200,3 +200,44 @@ export function getPlatformHooks(channel: Channel): string[] {
     "The conventional approach to [X] ignores fundamental operational reality.",
   ];
 }
+
+export interface HookTemplate {
+  id?: number | string;
+  channel_key: string;
+  hook_text: string;
+  channel_name?: string;
+  badge?: string;
+}
+
+export const HOOK_LIBRARY: Record<string, string[]> = {
+  linkedin: [
+    "When evaluating corporate strategy, standard assumptions collapse.",
+    "Why conventional executive models fail within 90 days.",
+    "The evidentiary framework for resolving operational friction."
+  ],
+  x: [
+    "Unpopular truth about leadership alignment.",
+    "Stop optimizing legacy metrics."
+  ],
+  threads: [
+    "Let's discuss the elephant in the executive boardroom."
+  ],
+  bluesky: [
+    "A structural analysis of executive decision-making."
+  ],
+  pinterest: [
+    "Executive Protocol Infographic & Blueprint."
+  ],
+  tiktok: [
+    "The 3-second rule for executive retention."
+  ],
+  instagram: [
+    "Visualizing the 2027 Leadership Framework."
+  ],
+  youtube: [
+    "Full Breakdown: Autonomous Pipeline Architecture."
+  ],
+  facebook: [
+    "Community Briefing: Hilton Head Leadership Summit."
+  ]
+};
