@@ -47,153 +47,78 @@ export const CHANNEL_SPECS: Record<Channel, ChannelSpec> = {
   Facebook: { name: 'Facebook', charLimit: 3500, desc: 'Executive narrative and community briefing.', badge: 'Narrative' },
 };
 
-export type PipelineStageKey =
-  | 'strategy'
-  | 'traffic'
-  | 'ideation'
-  | 'auditing'
-  | 'approval_1'
-  | 'production'
-  | 'polish'
-  | 'qc';
-
-export interface PipelineStageInfo {
-  key: PipelineStageKey;
-  stepNumber: number;
-  title: string;
-  workers: string;
-  roleDescription: string;
-}
-
-export const PIPELINE_STAGES: PipelineStageInfo[] = [
-  {
-    key: 'strategy',
-    stepNumber: 1,
-    title: 'Strategy & Ingestion',
-    workers: 'Sunday Night Autonomous Engine',
-    roleDescription: 'Pulls search targets and RSS feeds from Neon queue to establish topic tension.',
-  },
-  {
-    key: 'traffic',
-    stepNumber: 2,
-    title: 'Traffic & Logistics Engine',
-    workers: 'Traffic Manager',
-    roleDescription: 'Routes brand deliverables, reserves publication windows, and assigns channels.',
-  },
-  {
-    key: 'ideation',
-    stepNumber: 3,
-    title: 'Ideation & Angle Assembly',
-    workers: 'Creative Director & Copywriter Agent',
-    roleDescription: 'Drafts high-retention hooks and core narrative body copy.',
-  },
-  {
-    key: 'auditing',
-    stepNumber: 4,
-    title: 'Constraint & Voice Audit',
-    workers: 'Voice & Brand Auditor',
-    roleDescription: 'Filters forbidden words and strictly aligns brand posture and lexicon.',
-  },
-  {
-    key: 'approval_1',
-    stepNumber: 5,
-    title: 'Executive Review & Manual Inject',
-    workers: 'Editor-in-Chief / Executive Desk',
-    roleDescription: 'Monday morning review gate: inject breaking topics, revise copy, or unlock production.',
-  },
-  {
-    key: 'production',
-    stepNumber: 6,
-    title: 'Media Production',
-    workers: 'Visual & Audio Director Agents',
-    roleDescription: 'Generates image prompts, storyboards, Pixabay media, and VO cues.',
-  },
-  {
-    key: 'polish',
-    stepNumber: 7,
-    title: 'Platform Formatting',
-    workers: 'Platform Packaging Agent',
-    roleDescription: 'Applies channel-specific character caps, spacing, and hashtag clusters.',
-  },
-  {
-    key: 'qc',
-    stepNumber: 8,
-    title: 'Final Quality Control',
-    workers: 'Executive Director (QC)',
-    roleDescription: 'Final sign-off; sets status to approved and commits package to database.',
-  },
-];
-
-export interface ColumnDesk {
-  id: string;
-  name: string;
-  author: string;
-  subtitle: string;
-  description: string;
-  recommendedChannels: SocialPlatform[];
-  researchQueries: string[];
-  archetypeTopics: string[];
-  lexiconAnchors: string[];
-}
-
-export interface BrandColors {
-  primary: string;
-  secondary?: string;
-  accent: string;
-  bg?: string;
-}
-
 export interface BrandPalette {
   bg: string;
   cardBg: string;
   text: string;
   accent: string;
+  secondary?: string;
+  names?: {
+    bg?: string;
+    accent?: string;
+    secondary?: string;
+    text?: string;
+  };
+  bgRgb?: [number, number, number];
+  accentRgb?: [number, number, number];
+  secondaryRgb?: [number, number, number];
+  textRgb?: [number, number, number];
 }
 
 export interface BrandConfig {
   key: string;
   name: string;
-  tagline: string;
-  description: string;
-  primaryChannels: SocialPlatform[];
-  columns?: ColumnDesk[];
-  colors: BrandColors;
-  palette?: BrandPalette;
+  tagline?: string;
+  description?: string;
+  primaryChannels?: SocialPlatform[];
+  colors?: { primary: string; accent: string; bg?: string };
+  palette: BrandPalette;
   archetype: string;
   posture: string;
   lexicon: string[];
   negativeConstraints: string;
   forbiddenWords?: string[];
   audiences: string[];
+  sampleTopics: string[];
   pictureRules?: any;
   videoRules?: any;
-  logoDescription?: string;
-  sampleTopics: string[];
 }
 
-// Safely map ALL_BRANDS into BRANDS dictionary while normalizing colors/palette
-export const BRANDS: Record<string, BrandConfig> = (ALL_BRANDS || []).reduce((acc, brand) => {
-  if (!brand || !brand.key) return acc;
+// Default Fallback Palette to eliminate undefined color lookups
+const DEFAULT_PALETTE: BrandPalette = {
+  bg: '#0a0a0a',
+  cardBg: '#171717',
+  text: '#ffffff',
+  accent: '#f59e0b',
+  secondary: '#3b82f6',
+  names: { bg: 'Dark Obsidian', accent: 'Amber Gold', secondary: 'Cobalt Blue', text: 'Pure White' },
+  bgRgb: [10, 10, 10],
+  accentRgb: [245, 158, 11],
+  secondaryRgb: [59, 130, 246],
+  textRgb: [255, 255, 255],
+};
 
-  // Ensure both colors and palette exist to prevent UI rendering crashes
-  const colors = brand.colors || { primary: '#171717', accent: '#f59e0b', bg: '#0a0a0a' };
-  const palette = brand.palette || {
-    bg: colors.bg || '#0a0a0a',
-    cardBg: '#171717',
-    text: '#ffffff',
-    accent: colors.accent || '#f59e0b',
-  };
+// Normalize every brand in the registry on module load
+export const BRANDS: Record<string, BrandConfig> = ((ALL_BRANDS as any[]) || []).reduce((acc, rawBrand) => {
+  if (!rawBrand || !rawBrand.key) return acc;
 
-  acc[brand.key] = {
-    ...brand,
-    colors,
-    palette,
-    archetype: brand.archetype || 'Sovereign Leader',
-    posture: brand.posture || 'Authoritative & Strategic',
-    lexicon: Array.isArray(brand.lexicon) ? brand.lexicon : ['Leadership', 'Disruption'],
-    negativeConstraints: brand.negativeConstraints || 'Avoid hype and empty buzzwords.',
-    audiences: Array.isArray(brand.audiences) && brand.audiences.length > 0 ? brand.audiences : ['Executive Leadership'],
-    sampleTopics: Array.isArray(brand.sampleTopics) && brand.sampleTopics.length > 0 ? brand.sampleTopics : ['Strategic Leadership'],
+  const accentColor = rawBrand.palette?.accent || rawBrand.colors?.accent || '#f59e0b';
+  const bgColor = rawBrand.palette?.bg || rawBrand.colors?.bg || '#0a0a0a';
+
+  acc[rawBrand.key] = {
+    ...rawBrand,
+    palette: {
+      ...DEFAULT_PALETTE,
+      ...(rawBrand.palette || {}),
+      accent: accentColor,
+      bg: bgColor,
+    },
+    archetype: rawBrand.archetype || 'Sovereign Leader',
+    posture: rawBrand.posture || 'Authoritative & Strategic',
+    lexicon: Array.isArray(rawBrand.lexicon) ? rawBrand.lexicon : ['Strategy', 'Leadership'],
+    negativeConstraints: rawBrand.negativeConstraints || 'Avoid ungrounded marketing buzzwords.',
+    audiences: Array.isArray(rawBrand.audiences) && rawBrand.audiences.length > 0 ? rawBrand.audiences : ['Executive Leadership'],
+    sampleTopics: Array.isArray(rawBrand.sampleTopics) && rawBrand.sampleTopics.length > 0 ? rawBrand.sampleTopics : ['Strategic Leadership'],
   };
   return acc;
 }, {} as Record<string, BrandConfig>);
@@ -201,7 +126,7 @@ export const BRANDS: Record<string, BrandConfig> = (ALL_BRANDS || []).reduce((ac
 export interface ProductionPackage {
   id: string;
   brand_key: BrandKey;
-  brandKey?: BrandKey; // Alias for camelCase lookups in UI
+  brandKey: BrandKey; // Guaranteed alias
   brand_name: string;
   channel: Channel;
   audience: string;
@@ -210,11 +135,11 @@ export interface ProductionPackage {
   hook_options: string[];
   selected_hook?: string;
   post_body: string;
-  socialCopy?: string; // Alias for UI components
+  socialCopy: string; // Guaranteed alias
   voiceover_script: string;
-  voiceoverScript?: string; // Alias for UI components
+  voiceoverScript: string; // Guaranteed alias
   visual_headline: string;
-  cardText?: string; // Alias for UI components
+  cardText: string; // Guaranteed alias
   image_prompt: string;
   image_card_data?: string;
   photo_url?: string;
@@ -228,16 +153,50 @@ export interface ProductionPackage {
   scheduled_at?: string;
 }
 
-// Hook Library Definitions
-export interface HookTemplate {
-  id?: number;
-  channel_key: string;
-  hook_text: string;
-  channel_name?: string;
-  badge?: string;
+/**
+ * Helper function to normalize raw production packages coming from backend API
+ */
+export function normalizePackage(raw: any): ProductionPackage {
+  const bKey = raw.brand_key || raw.brandKey || 'fyrrion';
+  const bodyText = raw.post_body || raw.socialCopy || '';
+  const voScript = raw.voiceover_script || raw.voiceoverScript || '';
+  const headlineText = raw.visual_headline || raw.cardText || 'Executive Protocol';
+
+  return {
+    id: raw.id || `draft-${Date.now()}`,
+    brand_key: bKey,
+    brandKey: bKey,
+    brand_name: raw.brand_name || BRANDS[bKey]?.name || 'Brand Package',
+    channel: raw.channel || 'LinkedIn',
+    audience: raw.audience || 'Executive Leadership',
+    topic: raw.topic || 'Strategic Alignment',
+    magazine_column: raw.magazine_column,
+    hook_options: Array.isArray(raw.hook_options) ? raw.hook_options : ['Strategic Directive'],
+    selected_hook: raw.selected_hook || raw.hook_options?.[0] || '',
+    post_body: bodyText,
+    socialCopy: bodyText,
+    voiceover_script: voScript,
+    voiceoverScript: voScript,
+    visual_headline: headlineText,
+    cardText: headlineText,
+    image_prompt: raw.image_prompt || '',
+    image_card_data: raw.image_card_data,
+    photo_url: raw.photo_url,
+    video_url: raw.video_url,
+    video_storyboard: raw.video_storyboard,
+    video_prompt: raw.video_prompt,
+    hashtags: raw.hashtags || '',
+    status: raw.status || 'pending_review',
+    rejection_reason: raw.rejection_reason,
+    created_at: raw.created_at || new Date().toISOString(),
+    scheduled_at: raw.scheduled_at,
+  };
 }
 
-export const HOOK_LIBRARY: HookTemplate[] = [];
-
-// Editorial Constraint Fallbacks
-export const FORBIDDEN_UNIVERSAL_WORDS: string[] = ['synergy', 'game-changer', 'unprecedented', 'paradigm shift'];
+export function getPlatformHooks(channel: Channel): string[] {
+  return [
+    "When evaluating [X], standard assumptions collapse.",
+    "Unpopular truth: The conversation around [X] treats a structural crisis with cosmetic rhetoric.",
+    "The conventional approach to [X] ignores fundamental operational reality.",
+  ];
+}
