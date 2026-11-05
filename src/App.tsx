@@ -176,3 +176,6 @@ export const App: React.FC = () => {
     </div>
   );
 };
+
+// Append this line to the bottom of src/App.tsx:
+export default App;
