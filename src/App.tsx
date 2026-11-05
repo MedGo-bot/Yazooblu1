@@ -1,247 +1,178 @@
+// src/App.tsx
 import React, { useState, useEffect } from 'react';
-import { ProductionPackage, Channel, BrandKey, BRANDS } from './types';
-import { INITIAL_DRAFTS } from './mockData';
-import { Header, MainTabKey } from './components/Header';
-import { BrandTabs } from './components/BrandTabs';
-import { BrandStudioCanvas } from './components/BrandStudioCanvas';
-import { ApprovalQueue } from './components/ApprovalQueue';
-import { ApprovedArchive } from './components/ApprovedArchive';
+import { ProductionStudio } from './components/ProductionStudio';
 import { BrandMatrixViewer } from './components/BrandMatrixViewer';
-import { HookLibraryView } from './components/HookLibraryView';
-import { PerformanceMetrics } from './components/PerformanceMetrics';
-import { EditorialCalendar } from './components/EditorialCalendar';
-import { MediaVault, VaultAsset } from './components/MediaVault';
-import { MagazineIssueAssembler } from './components/MagazineIssueAssembler';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { ProductionPackage, BRANDS, normalizePackage } from './types';
+import { Bot, Layers, BookOpen } from 'lucide-react';
 
-export default function App() {
-  const [activeTab, setActiveTab] = useState<MainTabKey>('studio');
-  const [selectedBrandKey, setSelectedBrandKey] = useState<BrandKey>('bes_outkast');
-  const [drafts, setDrafts] = useState<ProductionPackage[]>(INITIAL_DRAFTS);
-  const [latestDraft, setLatestDraft] = useState<ProductionPackage | null>(INITIAL_DRAFTS[0]);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [prefilledTopic, setPrefilledTopic] = useState<string | undefined>(undefined);
-  const [prefilledChannel, setPrefilledChannel] = useState<Channel | undefined>(undefined);
+export const App: React.FC = () => {
+  const [drafts, setDrafts] = useState<ProductionPackage[]>([]);
+  const [activeTab, setActiveTab] = useState<'studio' | 'matrix' | 'queue'>('studio');
+  const [latestDraft, setLatestDraft] = useState<ProductionPackage | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Fetch from server on load
+  // Safe API loader with content-type check and normalizer
   useEffect(() => {
-    fetch('/api/drafts')
-      .then((res) => {
-        if (res.ok) return res.json();
-        throw new Error('Failed to load drafts');
-      })
-      .then((data: ProductionPackage[]) => {
-        if (Array.isArray(data) && data.length > 0) {
-          setDrafts(data);
-          setLatestDraft(data[0]);
+    let isMounted = true;
+    const loadDrafts = async () => {
+      try {
+        const res = await fetch('/api/drafts');
+        const contentType = res.headers.get('content-type');
+
+        if (res.ok && contentType && contentType.includes('application/json')) {
+          const rawData = await res.json();
+          if (isMounted && Array.isArray(rawData)) {
+            // Clean and normalize every package
+            const normalized = rawData.filter(Boolean).map(normalizePackage);
+            setDrafts(normalized);
+            if (normalized.length > 0) {
+              setLatestDraft(normalized[0]);
+            }
+          }
+        } else {
+          console.warn('API returned non-JSON response or 404. Operating in local mode.');
+          if (isMounted) setDrafts([]);
         }
-      })
-      .catch((err) => {
-        console.warn('API fetch fallback to initial drafts:', err.message);
-      });
+      } catch (err) {
+        console.warn('Network fetch error, operating in offline mode:', err);
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+
+    loadDrafts();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
+  const handleDraftCreated = (rawDraft: ProductionPackage) => {
+    if (!rawDraft) return;
+    const cleanDraft = normalizePackage(rawDraft);
+    setLatestDraft(cleanDraft);
+    setDrafts((prev) => [cleanDraft, ...(Array.isArray(prev) ? prev : [])]);
   };
-
-  const handleDraftCreated = (newDraft: ProductionPackage) => {
-    setDrafts((prev) => [newDraft, ...prev]);
-    setLatestDraft(newDraft);
-    showToast(`Package successfully added to ${newDraft.brand_name} queue!`);
-  };
-
-  const handleUpdateStatus = async (
-    id: string,
-    status: 'approved' | 'rejected',
-    rejectionReason?: string
-  ) => {
-    try {
-      await fetch(`/api/drafts/${id}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status, rejection_reason: rejectionReason }),
-      });
-    } catch (err) {
-      console.warn('Server status update error:', err);
-    }
-
-    setDrafts((prev) =>
-      prev.map((d) =>
-        d.id === id ? { ...d, status, rejection_reason: rejectionReason } : d
-      )
-    );
-
-    if (status === 'approved') {
-      showToast('Package approved and added to Editorial Pipeline!');
-    } else {
-      showToast('Package rejected and archived.');
-    }
-  };
-
-  const handleUpdateDraft = async (id: string, updated: Partial<ProductionPackage>) => {
-    try {
-      await fetch(`/api/drafts/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...updated }),
-      });
-    } catch (err) {
-      console.warn('Server draft edit error:', err);
-    }
-
-    setDrafts((prev) =>
-      prev.map((d) => (d.id === id ? { ...d, ...updated } : d))
-    );
-
-    if (latestDraft && latestDraft.id === id) {
-      setLatestDraft((prev) => (prev ? { ...prev, ...updated } : null));
-    }
-    showToast('Modifications saved successfully.');
-  };
-
-  const handleDeleteDraft = async (id: string) => {
-    try {
-      await fetch(`/api/drafts/${id}`, { method: 'DELETE' });
-    } catch (err) {
-      console.warn('Server delete error:', err);
-    }
-
-    setDrafts((prev) => prev.filter((d) => d.id !== id));
-    if (latestDraft && latestDraft.id === id) {
-      setLatestDraft(null);
-    }
-    showToast('Draft removed.');
-  };
-
-  const handleReopenDraft = async (id: string) => {
-    handleUpdateStatus(id, 'pending_review' as any);
-    showToast('Package moved back to Human Approval Queue.');
-  };
-
-  // Compute portfolio draft counts per brand
-  const brandCounts = (Object.keys(BRANDS) as BrandKey[]).reduce((acc, key) => {
-    const brandDrafts = drafts.filter((d) => d.brand_key === key);
-    acc[key] = {
-      total: brandDrafts.length,
-      pending: brandDrafts.filter((d) => d.status === 'pending_review').length,
-      approved: brandDrafts.filter((d) => d.status === 'approved').length,
-    };
-    return acc;
-  }, {} as Record<BrandKey, { total: number; pending: number; approved: number }>);
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col font-sans selection:bg-amber-400 selection:text-black antialiased">
-      {/* Top Executive Navigation */}
-      <Header
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        drafts={drafts}
-      />
+    <div className="min-h-screen bg-neutral-950 text-neutral-100 font-sans antialiased">
+      {/* Top Bar Header */}
+      <header className="border-b border-neutral-800 bg-neutral-900/90 backdrop-blur-md sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-400">
+              <Bot className="w-5 h-5" />
+            </div>
+            <div>
+              <h1 className="text-sm font-bold text-white tracking-wide uppercase font-mono">
+                YazooBlu Studio
+              </h1>
+              <p className="text-[10px] text-neutral-400 font-mono">
+                2027 Autonomous Multi-Agent Pipeline
+              </p>
+            </div>
+          </div>
 
-      {/* Main Workspace Body */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {activeTab === 'studio' && (
-          <div className="space-y-6">
-            {/* Prominent Large Brand Tabs */}
-            <BrandTabs
-              selectedBrandKey={selectedBrandKey}
-              onSelectBrand={(key) => setSelectedBrandKey(key)}
-              brandCounts={brandCounts}
-            />
+          <nav className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('studio')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition cursor-pointer ${
+                activeTab === 'studio'
+                  ? 'bg-neutral-800 text-amber-400 border border-amber-500/30'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              Studio Dispatch
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('matrix')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'matrix'
+                  ? 'bg-neutral-800 text-amber-400 border border-amber-500/30'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              Brand Matrix
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('queue')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'queue'
+                  ? 'bg-neutral-800 text-amber-400 border border-amber-500/30'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              Approval Queue ({drafts.length})
+            </button>
+          </nav>
+        </div>
+      </header>
 
-            {/* Individual Brand Canvas with the 8-Stage Agency Pipeline */}
-            <BrandStudioCanvas
-              key={selectedBrandKey}
-              brandKey={selectedBrandKey}
+      {/* Main View Area with Protective Error Boundary */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <ErrorBoundary fallbackTitle="Studio Section Recovered">
+          {activeTab === 'studio' && (
+            <ProductionStudio
               onDraftCreated={handleDraftCreated}
               latestDraft={latestDraft}
               onNavigateToQueue={() => setActiveTab('queue')}
-              onNavigateToArchive={() => setActiveTab('archive')}
-              initialTopic={prefilledTopic}
-              initialChannel={prefilledChannel}
             />
-          </div>
-        )}
+          )}
 
-        {activeTab === 'calendar' && (
-          <EditorialCalendar
-            drafts={drafts}
-            onNavigateToStudio={(brandKey) => {
-              if (brandKey) setSelectedBrandKey(brandKey);
-              setActiveTab('studio');
-            }}
-          />
-        )}
+          {activeTab === 'matrix' && <BrandMatrixViewer />}
 
-        {activeTab === 'vault' && (
-          <MediaVault
-            onUseAssetInStudio={(asset: VaultAsset) => {
-              setSelectedBrandKey(asset.brandKey);
-              setPrefilledTopic(asset.title);
-              setActiveTab('studio');
-              showToast(`Applied "${asset.title}" to ${BRANDS[asset.brandKey].name} Studio!`);
-            }}
-          />
-        )}
+          {activeTab === 'queue' && (
+            <div className="space-y-4">
+              <h2 className="text-base font-bold text-white tracking-wide font-mono mb-4">
+                Human Approval Queue
+              </h2>
 
-        {activeTab === 'magazine' && (
-          <MagazineIssueAssembler
-            onSelectColumnInStudio={(colId: string, colTopic: string) => {
-              setSelectedBrandKey('bes_outkast');
-              setPrefilledTopic(colTopic);
-              setActiveTab('studio');
-              showToast(`Loaded column "${colId}" into Bes Outkast Studio!`);
-            }}
-          />
-        )}
+              {drafts.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {drafts.map((draft) => {
+                    const brand = BRANDS[draft.brandKey] || BRANDS['fyrrion'];
+                    const accentColor = brand.palette.accent;
 
-        {activeTab === 'queue' && (
-          <ApprovalQueue
-            drafts={drafts}
-            onUpdateStatus={handleUpdateStatus}
-            onUpdateDraft={handleUpdateDraft}
-            onDeleteDraft={handleDeleteDraft}
-            onNavigateToArchive={() => setActiveTab('archive')}
-          />
-        )}
+                    return (
+                      <div
+                        key={draft.id}
+                        className="p-5 rounded-2xl border border-neutral-800 bg-neutral-900/80 shadow-lg space-y-3"
+                        style={{ borderLeftColor: accentColor, borderLeftWidth: '4px' }}
+                      >
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-mono text-neutral-400 font-bold uppercase">
+                            {draft.brand_name}
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-neutral-950 text-neutral-300 font-mono text-[10px] border border-neutral-800">
+                            {draft.channel}
+                          </span>
+                        </div>
 
-        {activeTab === 'archive' && (
-          <ApprovedArchive
-            drafts={drafts}
-            onReopenDraft={handleReopenDraft}
-            onNavigateToStudio={() => setActiveTab('studio')}
-          />
-        )}
+                        <p className="text-xs text-white font-medium leading-relaxed">
+                          {draft.topic}
+                        </p>
 
-        {activeTab === 'matrix' && <BrandMatrixViewer />}
-
-        {activeTab === 'hooks' && (
-          <HookLibraryView
-            onUseHookInStudio={(hookText, channel) => {
-              setPrefilledTopic(hookText);
-              setPrefilledChannel(channel);
-              setActiveTab('studio');
-              showToast(`Hook applied for ${channel} in Brand Studio!`);
-            }}
-          />
-        )}
-
-        {activeTab === 'metrics' && <PerformanceMetrics drafts={drafts} />}
+                        <div className="p-3 rounded-xl bg-neutral-950 border border-neutral-800/80 text-[11px] text-neutral-300 font-sans whitespace-pre-wrap max-h-32 overflow-y-auto">
+                          {draft.socialCopy}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="p-8 text-center text-neutral-500 font-mono text-xs bg-neutral-900/40 rounded-2xl border border-neutral-800">
+                  No packages currently in the queue.
+                </div>
+              )}
+            </div>
+          )}
+        </ErrorBoundary>
       </main>
-
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-neutral-900 border border-neutral-700 text-white text-xs px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-amber-400" />
-          <span>{toastMessage}</span>
-        </div>
-      )}
-
-      {/* Quiet Footer */}
-      <footer className="border-t border-neutral-900/80 bg-neutral-950 py-5 text-center text-xs text-neutral-500 font-mono">
-        YazooBlu · Sovereign Brand Editorial Studios · 8-Stage Autonomous Agency
-      </footer>
     </div>
   );
-}
+};
