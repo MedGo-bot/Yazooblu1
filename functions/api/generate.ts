@@ -53,16 +53,3 @@ export async function onRequestOptions() {
     },
   });
 }
-
-export async function onRequest(context: { request: Request; env: Record<string, string> }) {
-  if (context.request.method === 'OPTIONS') {
-    return onRequestOptions();
-  }
-  if (context.request.method === 'POST') {
-    return onRequestPost(context);
-  }
-  return new Response(JSON.stringify({ error: 'Method Not Allowed' }), {
-    status: 405,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
