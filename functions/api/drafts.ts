@@ -1,18 +1,28 @@
 import { neon } from '@neondatabase/serverless';
 
+const corsHeaders = {
+  'Content-Type': 'application/json',
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
 function json(data: any, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    },
+    headers: corsHeaders,
   });
 }
 
-// GET: Filter items by stage ('review', 'scheduled', or 'vault')
+// OPTIONS: Handle browser preflight checks for POST, PUT, and DELETE
+export async function onRequestOptions() {
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders,
+  });
+}
+
+// GET: Filter items by stage, brand, or fetch latest
 export async function onRequestGet(context: any) {
   const { request, env } = context;
   if (!env.DATABASE_URL) return json({ error: 'DATABASE_URL missing' }, 500);
@@ -35,6 +45,12 @@ export async function onRequestGet(context: any) {
         SELECT * FROM editorial_posts 
         WHERE stage = ${stage}
         ORDER BY COALESCE(scheduled_date, created_at) ASC
+      `;
+    } else if (brandKey) {
+      rows = await sql`
+        SELECT * FROM editorial_posts 
+        WHERE brand_key = ${brandKey}
+        ORDER BY created_at DESC LIMIT 150
       `;
     } else {
       rows = await sql`
@@ -69,6 +85,7 @@ export async function onRequestGet(context: any) {
     return json({ error: err.message, drafts: [], items: [] }, 500);
   }
 }
+
 // POST: Stage new generation from Gemini into 'review'
 export async function onRequestPost(context: any) {
   const { request, env } = context;
@@ -87,7 +104,7 @@ export async function onRequestPost(context: any) {
         ${p.headline || p.title || 'Untitled Strategic Directive'},
         ${p.topic || 'Executive Architecture'},
         ${p.content || p.body || ''},
-        'review',                -- Lands directly in Approval Tab
+        'review',
         'pending_approval',
         ${p.scheduled_date || null},
         NOW()
@@ -120,20 +137,18 @@ export async function onRequestPut(context: any) {
     let updated;
 
     if (action === 'APPROVE_AND_SCHEDULE') {
-      // 1. Human approves and sets the publishing date -> Hits the Calendar
       [updated] = await sql`
         UPDATE editorial_posts 
         SET 
           stage = 'scheduled',
           status = 'approved',
           scheduled_date = ${scheduled_date || new Date(Date.now() + 86400000).toISOString()},
-          headline = COALESCE(${headline}, headline),
-          content = COALESCE(${content}, content)
+          headline = COALESCE(${headline ?? null}, headline),
+          content = COALESCE(${content ?? null}, content)
         WHERE id = ${id}
         RETURNING *
       `;
     } else if (action === 'MOVE_TO_VAULT') {
-      // 2. Post is published live -> Moves into the permanent Media Vault
       [updated] = await sql`
         UPDATE editorial_posts 
         SET 
@@ -145,16 +160,19 @@ export async function onRequestPut(context: any) {
         RETURNING *
       `;
     } else {
-      // 3. Regular human text/headline edit
       [updated] = await sql`
         UPDATE editorial_posts 
         SET 
-          headline = COALESCE(${headline}, headline),
-          content = COALESCE(${content}, content),
-          scheduled_date = COALESCE(${scheduled_date}, scheduled_date)
+          headline = COALESCE(${headline ?? null}, headline),
+          content = COALESCE(${content ?? null}, content),
+          scheduled_date = COALESCE(${scheduled_date ?? null}, scheduled_date)
         WHERE id = ${id}
         RETURNING *
       `;
+    }
+
+    if (!updated) {
+      return json({ error: `Record with ID "${id}" was not found.` }, 404);
     }
 
     return json({ success: true, post: updated });
