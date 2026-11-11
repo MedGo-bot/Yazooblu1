@@ -43,12 +43,32 @@ export async function onRequestGet(context: any) {
       `;
     }
 
-    return json({ drafts: rows, items: rows });
+    // Map Neon database schema into the ProductionPackage format expected by ApprovalQueue & Calendar
+    const formattedDrafts = rows.map((r: any) => ({
+      id: r.id,
+      brand_key: r.brand_key,
+      brand_name: r.brand_key === 'bes_outkast' ? 'Bes Outkast Society' : r.brand_key,
+      topic: r.topic || 'Strategic Directive',
+      visual_headline: r.headline || '',
+      post_body: r.content || '',
+      stage: r.stage || 'review',
+      status: r.status || 'pending_approval',
+      channel: r.channel || 'LinkedIn',
+      hook_options: [r.headline || 'Directive Hook'],
+      selected_hook: r.headline || 'Directive Hook',
+      image_prompt: `High-authority executive editorial composition for ${r.brand_key}`,
+      voiceover_script: r.content || '',
+      hashtags: '#ExecutiveLeadership #StrategicGovernance',
+      scheduled_date: r.scheduled_date,
+      live_url: r.live_url,
+      created_at: r.created_at,
+    }));
+
+    return json({ drafts: formattedDrafts, items: formattedDrafts });
   } catch (err: any) {
     return json({ error: err.message, drafts: [], items: [] }, 500);
   }
 }
-
 // POST: Stage new generation from Gemini into 'review'
 export async function onRequestPost(context: any) {
   const { request, env } = context;
