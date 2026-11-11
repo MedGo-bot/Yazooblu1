@@ -12,3 +12,13 @@
     "not_found_handling": "single-page-application"
   }
 }
+
+{
+  "name": "your-worker-or-pages-project",
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "<YOUR_HYPERDRIVE_CONFIG_ID>"
+    }
+  ]
+}
