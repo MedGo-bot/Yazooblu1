@@ -19,6 +19,8 @@ import {
   Scissors,
   ShieldAlert,
   Share2,
+  Calendar,
+  Archive,
   ArrowRight,
 } from 'lucide-react';
 import { BRANDS, BrandKey, ProductionPackage, Channel, CHANNEL_SPECS } from '../types';
@@ -51,6 +53,13 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<Partial<ProductionPackage>>({});
+
+  // Scheduling Modal State
+  const [schedulingDraft, setSchedulingDraft] = useState<ProductionPackage | null>(null);
+  const [scheduleDateTime, setScheduleDateTime] = useState<string>(
+    new Date(Date.now() + 86400000).toISOString().slice(0, 16)
+  );
+  const [isSubmittingSchedule, setIsSubmittingSchedule] = useState(false);
 
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState<string>('');
@@ -140,8 +149,15 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
     }
   };
 
-  // Filter only pending_review items
-  const pendingDrafts = drafts.filter((d) => d.status === 'pending_review');
+  // Tolerant filter: catches both pending_review and pending_approval states, as well as stage 'review'
+  const pendingDrafts = drafts.filter((d: any) => {
+    return (
+      d.status === 'pending_review' ||
+      d.status === 'pending_approval' ||
+      d.stage === 'review' ||
+      !d.status
+    );
+  });
 
   const filteredDrafts = pendingDrafts.filter((draft) => {
     if (selectedBrandFilter !== 'all' && draft.brand_key !== selectedBrandFilter) {
@@ -152,9 +168,9 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
     }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      const matchTopic = draft.topic.toLowerCase().includes(q);
-      const matchBody = draft.post_body.toLowerCase().includes(q);
-      const matchHeadline = draft.visual_headline.toLowerCase().includes(q);
+      const matchTopic = (draft.topic || '').toLowerCase().includes(q);
+      const matchBody = (draft.post_body || '').toLowerCase().includes(q);
+      const matchHeadline = (draft.visual_headline || '').toLowerCase().includes(q);
       return matchTopic || matchBody || matchHeadline;
     }
     return true;
@@ -169,7 +185,7 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
   const handleStartEdit = (draft: ProductionPackage) => {
     setEditingId(draft.id);
     setEditFormData({
-      selected_hook: draft.selected_hook || draft.hook_options[0],
+      selected_hook: draft.selected_hook || (draft.hook_options ? draft.hook_options[0] : ''),
       post_body: draft.post_body,
       visual_headline: draft.visual_headline,
       voiceover_script: draft.voiceover_script,
@@ -177,9 +193,82 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
     });
   };
 
-  const handleSaveEdit = (id: string) => {
+  const handleSaveEdit = async (id: string) => {
     onUpdateDraft(id, editFormData);
+    try {
+      await fetch('/api/drafts', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id,
+          action: 'EDIT_DRAFT',
+          headline: editFormData.visual_headline,
+          content: editFormData.post_body,
+        }),
+      });
+    } catch (err) {
+      console.warn('Backend sync deferred:', err);
+    }
     setEditingId(null);
+  };
+
+  // Direct transition: Approve, assign publishing date, and push directly to Calendar
+  const handleConfirmScheduleAndApprove = async () => {
+    if (!schedulingDraft) return;
+    setIsSubmittingSchedule(true);
+    const scheduledIso = new Date(scheduleDateTime).toISOString();
+
+    try {
+      const res = await fetch('/api/drafts', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: schedulingDraft.id,
+          action: 'APPROVE_AND_SCHEDULE',
+          scheduled_date: scheduledIso,
+          headline: schedulingDraft.visual_headline,
+          content: schedulingDraft.post_body,
+        }),
+      });
+
+      if (res.ok) {
+        onUpdateDraft(schedulingDraft.id, {
+          scheduled_date: scheduledIso,
+          status: 'approved' as any,
+          stage: 'scheduled' as any,
+        });
+        onUpdateStatus(schedulingDraft.id, 'approved');
+      }
+    } catch (err) {
+      console.error('Schedule failed:', err);
+      onUpdateStatus(schedulingDraft.id, 'approved');
+    } finally {
+      setIsSubmittingSchedule(false);
+      setSchedulingDraft(null);
+    }
+  };
+
+  // Direct transition: Move directly to Media Vault (stage: 'vault')
+  const handleDirectMoveToVault = async (draft: ProductionPackage) => {
+    try {
+      const res = await fetch('/api/drafts', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: draft.id,
+          action: 'MOVE_TO_VAULT',
+          live_url: `https://production.besheawe.com/vault/${draft.id}`,
+        }),
+      });
+      if (res.ok) {
+        onUpdateDraft(draft.id, {
+          status: 'published' as any,
+          stage: 'vault' as any,
+        });
+      }
+    } catch (err) {
+      console.error('Vault move failed:', err);
+    }
   };
 
   const handleConfirmReject = (id: string) => {
@@ -197,22 +286,24 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
             <div className="flex items-center gap-2">
               <Clock className="w-5 h-5 text-amber-400" />
               <h2 className="text-lg font-bold text-white tracking-wide">
-                Human Approval Queue
+                Human Approval & Staging Queue
               </h2>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-mono bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                {pendingDrafts.length} Pending
+                {pendingDrafts.length} Staged for Review
               </span>
             </div>
             <p className="text-xs text-neutral-400 mt-1">
-              Review, edit hooks, verify brand constraints, and sign off for multi-platform distribution.
+              Audit AI-generated drafts, fine-tune voice and hooks, schedule onto the posting calendar, or archive to vault.
             </p>
           </div>
 
           <button
+            type="button"
             onClick={onNavigateToArchive}
             className="text-xs text-neutral-300 hover:text-white px-3 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 transition flex items-center gap-2 cursor-pointer self-start sm:self-auto"
           >
-            View Approved Archive
+            <Archive className="w-3.5 h-3.5 text-neutral-400" />
+            Media Vault & Archive
             <ExternalLink className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -239,7 +330,7 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
               <option value="all">All Brands ({Object.keys(BRANDS).length})</option>
               {(Object.keys(BRANDS) as BrandKey[]).map((k) => (
                 <option key={k} value={k}>
-                  {BRANDS[k].name}
+                  {BRANDS[k]?.name || k}
                 </option>
               ))}
             </select>
@@ -283,16 +374,21 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
       ) : (
         <div className="space-y-4">
           {filteredDrafts.map((draft) => {
-            const brand = BRANDS[draft.brand_key] || BRANDS.fyrrion;
+            const brand = BRANDS[draft.brand_key] || {
+              name: draft.brand_key,
+              palette: { accent: '#D97706', bg: '#111827' },
+            };
             const isExpanded = expandedId === draft.id || expandedId === null;
             const isEditing = editingId === draft.id;
+            const accent = brand?.palette?.accent || '#D97706';
+            const bg = brand?.palette?.bg || '#111827';
 
             return (
               <div
                 key={draft.id}
                 className="bg-neutral-900/90 border border-neutral-800 rounded-2xl overflow-hidden shadow-xl transition-all"
                 style={{
-                  borderLeft: `4px solid ${brand.palette.accent}`,
+                  borderLeft: `4px solid ${accent}`,
                 }}
               >
                 {/* Draft Summary Header */}
@@ -301,11 +397,11 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                     <div className="flex flex-wrap items-center gap-2">
                       <span
                         className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-md text-white flex items-center gap-1.5"
-                        style={{ backgroundColor: `${brand.palette.bg}` }}
+                        style={{ backgroundColor: bg }}
                       >
                         <span
                           className="w-2 h-2 rounded-full"
-                          style={{ backgroundColor: brand.palette.accent }}
+                          style={{ backgroundColor: accent }}
                         />
                         [{draft.brand_key.toUpperCase()}] {brand.name}
                       </span>
@@ -318,7 +414,7 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                         </span>
                       )}
                       <span className="text-[11px] text-neutral-400 font-mono">
-                        Audience: <strong className="text-neutral-200">{draft.audience}</strong>
+                        Audience: <strong className="text-neutral-200">{draft.audience || 'Executive'}</strong>
                       </span>
                     </div>
                     <h3 className="text-sm md:text-base font-bold text-white leading-snug">
@@ -329,18 +425,28 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                   {/* Top Action Bar */}
                   <div className="flex items-center gap-2 shrink-0">
                     <button
-                      onClick={() => onUpdateStatus(draft.id, 'approved')}
-                      className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold text-xs flex items-center gap-1.5 transition shadow-lg shadow-emerald-500/10 cursor-pointer"
+                      type="button"
+                      onClick={() => handleStartEdit(draft)}
+                      className="px-3 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-medium text-xs flex items-center gap-1.5 border border-neutral-700 transition cursor-pointer"
                     >
-                      <CheckCircle className="w-4 h-4" /> Approve
+                      <Edit3 className="w-3.5 h-3.5 text-amber-400" /> Edit Copy
                     </button>
                     <button
+                      type="button"
+                      onClick={() => setSchedulingDraft(draft)}
+                      className="px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-neutral-950 font-bold text-xs flex items-center gap-1.5 transition shadow-lg shadow-amber-400/10 cursor-pointer"
+                    >
+                      <Calendar className="w-4 h-4" /> Approve & Schedule
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setRejectingId(draft.id)}
-                      className="px-3.5 py-2 rounded-xl bg-neutral-800 hover:bg-rose-950/80 hover:text-rose-300 text-neutral-300 font-medium text-xs flex items-center gap-1.5 border border-neutral-700 transition cursor-pointer"
+                      className="px-3 py-2 rounded-xl bg-neutral-800 hover:bg-rose-950/80 hover:text-rose-300 text-neutral-300 font-medium text-xs flex items-center gap-1.5 border border-neutral-700 transition cursor-pointer"
                     >
                       <XCircle className="w-4 h-4" /> Reject
                     </button>
                     <button
+                      type="button"
                       onClick={() => setExpandedId(isExpanded ? '' : draft.id)}
                       className="p-2 rounded-xl bg-neutral-800/80 hover:bg-neutral-700 text-neutral-400 hover:text-white transition cursor-pointer"
                       title={isExpanded ? 'Collapse card' : 'Expand full details'}
@@ -384,9 +490,15 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                       {isEditing ? (
                         /* EDIT MODE FORM */
                         <div className="space-y-3 bg-neutral-950 p-4 rounded-xl border border-neutral-800">
-                          <h4 className="text-xs font-bold text-amber-400 uppercase font-mono">
-                            Editorial Inline Editor
-                          </h4>
+                          <div className="flex items-center justify-between pb-2 border-b border-neutral-800">
+                            <h4 className="text-xs font-bold text-amber-400 uppercase font-mono flex items-center gap-2">
+                              <Edit3 className="w-3.5 h-3.5" /> Editorial Line Editor
+                            </h4>
+                            <span className="text-[10px] font-mono text-neutral-400">
+                              Editing Draft #{draft.id.slice(0, 8)}
+                            </span>
+                          </div>
+
                           <div>
                             <label className="text-[11px] text-neutral-400 block mb-1">
                               Card Visual Headline (under 8 words)
@@ -400,13 +512,13 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                                   visual_headline: e.target.value,
                                 })
                               }
-                              className="w-full bg-neutral-900 border border-neutral-700 rounded-lg p-2 text-xs text-white"
+                              className="w-full bg-neutral-900 border border-neutral-700 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-400"
                             />
                           </div>
 
                           <div>
                             <label className="text-[11px] text-neutral-400 block mb-1">
-                              Selected Hook
+                              Primary Hook
                             </label>
                             <textarea
                               rows={2}
@@ -417,7 +529,7 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                                   selected_hook: e.target.value,
                                 })
                               }
-                              className="w-full bg-neutral-900 border border-neutral-700 rounded-lg p-2 text-xs text-white font-sans"
+                              className="w-full bg-neutral-900 border border-neutral-700 rounded-lg p-2 text-xs text-white font-sans focus:outline-none focus:border-amber-400"
                             />
                           </div>
 
@@ -426,7 +538,7 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                               Platform Body Copy
                             </label>
                             <textarea
-                              rows={6}
+                              rows={8}
                               value={editFormData.post_body || ''}
                               onChange={(e) =>
                                 setEditFormData({
@@ -434,22 +546,24 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                                   post_body: e.target.value,
                                 })
                               }
-                              className="w-full bg-neutral-900 border border-neutral-700 rounded-lg p-2 text-xs text-white font-sans leading-relaxed"
+                              className="w-full bg-neutral-900 border border-neutral-700 rounded-lg p-2 text-xs text-white font-sans leading-relaxed focus:outline-none focus:border-amber-400"
                             />
                           </div>
 
                           <div className="flex justify-end gap-2 pt-2">
                             <button
+                              type="button"
                               onClick={() => setEditingId(null)}
                               className="px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-xs text-neutral-300 cursor-pointer"
                             >
                               Cancel
                             </button>
                             <button
+                              type="button"
                               onClick={() => handleSaveEdit(draft.id)}
-                              className="px-4 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-black font-semibold text-xs cursor-pointer"
+                              className="px-4 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-black font-semibold text-xs cursor-pointer shadow-md"
                             >
-                              Save Modifications
+                              Save Draft Edits
                             </button>
                           </div>
                         </div>
@@ -463,6 +577,7 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                                 3 Hook Variations (Select Primary)
                               </span>
                               <button
+                                type="button"
                                 onClick={() => handleStartEdit(draft)}
                                 className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer font-medium"
                               >
@@ -471,7 +586,7 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                             </div>
 
                             <div className="space-y-2">
-                              {draft.hook_options.map((h, i) => {
+                              {(draft.hook_options || []).map((h, i) => {
                                 const isCurrentSelected =
                                   (draft.selected_hook || draft.hook_options[0]) === h;
                                 return (
@@ -519,7 +634,7 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                             </div>
                           </div>
 
-                          {/* Post Body with Line Breaks & Channel Standards */}
+                          {/* Post Body */}
                           <div className="rounded-xl bg-neutral-950/80 border border-neutral-800 p-4">
                             <div className="flex items-center justify-between mb-2">
                               <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider font-mono">
@@ -528,28 +643,29 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                               <div className="flex items-center gap-2">
                                 <div className="flex items-center gap-1.5 font-mono text-[10px]">
                                   <span className="text-neutral-400">
-                                    {draft.post_body.length} chars
+                                    {(draft.post_body || '').length} chars
                                   </span>
                                   {CHANNEL_SPECS[draft.channel]?.charLimit && (
                                     <span
                                       className={`px-1.5 py-0.2 rounded font-bold ${
-                                        draft.post_body.length <=
+                                        (draft.post_body || '').length <=
                                         (CHANNEL_SPECS[draft.channel]?.charLimit || 0)
                                           ? 'bg-emerald-500/20 text-emerald-300'
                                           : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
                                       }`}
                                     >
-                                      {draft.post_body.length <=
+                                      {(draft.post_body || '').length <=
                                       (CHANNEL_SPECS[draft.channel]?.charLimit || 0)
                                         ? `≤${CHANNEL_SPECS[draft.channel]?.charLimit}c`
                                         : `+${
-                                            draft.post_body.length -
+                                            (draft.post_body || '').length -
                                             (CHANNEL_SPECS[draft.channel]?.charLimit || 0)
                                           }c over max`}
                                     </span>
                                   )}
                                 </div>
                                 <button
+                                  type="button"
                                   onClick={() =>
                                     handleCopyText(draft.post_body, `body-${draft.id}`)
                                   }
@@ -572,7 +688,7 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                               {draft.post_body}
                             </div>
 
-                            {/* AI Polish & Channel Adaptation Suite */}
+                            {/* AI Polish Suite */}
                             <div className="mt-3 p-3 rounded-xl bg-neutral-950 border border-neutral-800/80 space-y-2.5">
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 <span className="text-[11px] font-mono font-semibold text-purple-300 flex items-center gap-1.5">
@@ -587,11 +703,11 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                                 )}
                               </div>
 
-                              {/* AI Feedback Banner */}
                               {aiRefineFeedback && aiRefineFeedback.id === draft.id && (
                                 <div className="p-2 rounded bg-purple-950/40 border border-purple-800/50 text-[11px] font-mono text-purple-200 flex items-center justify-between">
                                   <span>✓ {aiRefineFeedback.message}</span>
                                   <button
+                                    type="button"
                                     onClick={() => setAiRefineFeedback(null)}
                                     className="text-neutral-400 hover:text-white text-xs ml-2"
                                   >
@@ -601,9 +717,8 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                               )}
 
                               <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                                {/* Tighten for platform character limits */}
                                 {CHANNEL_SPECS[draft.channel]?.charLimit &&
-                                  draft.post_body.length > (CHANNEL_SPECS[draft.channel]?.charLimit || 0) && (
+                                  (draft.post_body || '').length > (CHANNEL_SPECS[draft.channel]?.charLimit || 0) && (
                                     <button
                                       type="button"
                                       disabled={aiRefiningId === draft.id}
@@ -611,7 +726,7 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                                       className="px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 font-mono text-[11px] font-bold flex items-center gap-1 cursor-pointer"
                                     >
                                       <Scissors className="w-3 h-3 text-rose-400" />
-                                      AI Auto-Tighten to ≤{CHANNEL_SPECS[draft.channel]?.charLimit}c
+                                      AI Auto-Tighten
                                     </button>
                                   )}
 
@@ -620,7 +735,6 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                                   disabled={aiRefiningId === draft.id}
                                   onClick={() => handleAiRefine(draft, 'more_contrarian')}
                                   className="px-2 py-1 rounded-md bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 hover:border-neutral-700 font-mono text-[11px] flex items-center gap-1 cursor-pointer"
-                                  title="Elevate contrarian authority and tension"
                                 >
                                   <Wand2 className="w-3 h-3 text-amber-400" />
                                   Elevate Posture
@@ -631,7 +745,6 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                                   disabled={aiRefiningId === draft.id}
                                   onClick={() => handleAiRefine(draft, 'new_hooks')}
                                   className="px-2 py-1 rounded-md bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 hover:border-neutral-700 font-mono text-[11px] flex items-center gap-1 cursor-pointer"
-                                  title="Generate 3 completely new native hooks"
                                 >
                                   <Sparkles className="w-3 h-3 text-purple-400" />
                                   Fresh Hooks
@@ -642,42 +755,17 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                                   disabled={aiRefiningId === draft.id}
                                   onClick={() => handleAiRefine(draft, 'eliminate_fluff')}
                                   className="px-2 py-1 rounded-md bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 hover:border-neutral-700 font-mono text-[11px] flex items-center gap-1 cursor-pointer"
-                                  title="Eradicate universal AI fluff words and forbidden brand slang"
                                 >
                                   <ShieldAlert className="w-3 h-3 text-emerald-400" />
                                   Purge Fluff
                                 </button>
-
-                                {/* Adapt to another platform dropdown */}
-                                <div className="flex items-center gap-1 ml-auto">
-                                  <span className="text-[10px] font-mono text-neutral-400">Adapt to:</span>
-                                  <select
-                                    disabled={aiRefiningId === draft.id}
-                                    defaultValue=""
-                                    onChange={(e) => {
-                                      if (e.target.value) {
-                                        handleAiRefine(draft, 'adapt_channel', e.target.value as Channel);
-                                        e.target.value = '';
-                                      }
-                                    }}
-                                    className="bg-neutral-900 border border-neutral-800 rounded px-2 py-1 text-[11px] font-mono text-neutral-300 cursor-pointer focus:outline-none focus:border-purple-500"
-                                  >
-                                    <option value="" disabled>Select Channel...</option>
-                                    {(['Bluesky', 'Threads', 'Pinterest', 'X', 'TikTok', 'LinkedIn', 'Instagram', 'YouTube', 'Substack', 'Facebook'] as Channel[])
-                                      .filter((c) => c !== draft.channel)
-                                      .map((c) => (
-                                        <option key={c} value={c}>
-                                          {c} {CHANNEL_SPECS[c]?.charLimit ? `(≤${CHANNEL_SPECS[c].charLimit}c)` : ''}
-                                        </option>
-                                      ))}
-                                  </select>
-                                </div>
                               </div>
                             </div>
 
                             <div className="mt-3 flex items-center justify-between text-xs font-mono text-neutral-400">
                               <span className="truncate">{draft.hashtags}</span>
                               <button
+                                type="button"
                                 onClick={() =>
                                   handleCopyText(draft.hashtags, `tags-${draft.id}`)
                                 }
@@ -700,14 +788,15 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                       {/* Bottom Control Strip */}
                       <div className="pt-3 border-t border-neutral-800 flex items-center justify-between">
                         <span className="text-[11px] font-mono text-neutral-500">
-                          ID: {draft.id} • Created{' '}
-                          {new Date(draft.created_at).toLocaleTimeString([], {
+                          ID: {draft.id.slice(0, 8)} • Created{' '}
+                          {new Date(draft.created_at || Date.now()).toLocaleTimeString([], {
                             hour: '2-digit',
                             minute: '2-digit',
                           })}
                         </span>
                         <div className="flex items-center gap-2">
                           <button
+                            type="button"
                             onClick={() => onDeleteDraft(draft.id)}
                             className="p-2 text-neutral-500 hover:text-rose-400 transition cursor-pointer"
                             title="Delete draft"
@@ -715,10 +804,19 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                             <Trash2 className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => onUpdateStatus(draft.id, 'approved')}
-                            className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-md"
+                            type="button"
+                            onClick={() => handleDirectMoveToVault(draft)}
+                            className="px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer border border-neutral-700"
+                            title="Bypass calendar and send directly to media vault"
                           >
-                            <CheckCircle className="w-4 h-4" /> Sign Off & Approve
+                            <Archive className="w-3.5 h-3.5 text-neutral-400" /> Move to Vault
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSchedulingDraft(draft)}
+                            className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-neutral-950 font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-md"
+                          >
+                            <Calendar className="w-4 h-4" /> Schedule to Calendar
                           </button>
                         </div>
                       </div>
@@ -731,7 +829,61 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
         </div>
       )}
 
-      {/* Reject Modal */}
+      {/* SCHEDULE MODAL */}
+      {schedulingDraft && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-neutral-950 border border-neutral-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-2 text-amber-400">
+              <Calendar className="w-5 h-5" />
+              <h3 className="font-bold text-white text-base">Confirm & Schedule to Calendar</h3>
+            </div>
+            <p className="text-xs text-neutral-300 leading-relaxed">
+              Sign off on <strong>{schedulingDraft.topic}</strong> for{' '}
+              <strong className="text-amber-300">{schedulingDraft.channel}</strong>. Once approved, this entry populates your interactive posting calendar.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-mono text-neutral-400 uppercase block">
+                Target Publication Slot
+              </label>
+              <input
+                type="datetime-local"
+                value={scheduleDateTime}
+                onChange={(e) => setScheduleDateTime(e.target.value)}
+                className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-400 font-mono"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-neutral-800">
+              <button
+                type="button"
+                onClick={() => setSchedulingDraft(null)}
+                className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs cursor-pointer font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isSubmittingSchedule}
+                onClick={handleConfirmScheduleAndApprove}
+                className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-neutral-950 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-1.5 shadow-md disabled:opacity-50"
+              >
+                {isSubmittingSchedule ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Scheduling...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="w-3.5 h-3.5" /> Approve & Push to Calendar
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* REJECT MODAL */}
       {rejectingId && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
@@ -740,7 +892,7 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
               <h3 className="font-bold text-white text-base">Reject Content Package</h3>
             </div>
             <p className="text-xs text-neutral-400">
-              Document editorial critique or brand negative constraint infraction before moving to archive.
+              Document editorial critique or brand constraint infraction before archiving.
             </p>
             <textarea
               rows={3}
@@ -751,12 +903,14 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
             />
             <div className="flex justify-end gap-2 pt-2">
               <button
+                type="button"
                 onClick={() => setRejectingId(null)}
                 className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs cursor-pointer font-medium"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={() => handleConfirmReject(rejectingId)}
                 className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold cursor-pointer"
               >
