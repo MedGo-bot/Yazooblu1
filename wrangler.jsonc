@@ -3,6 +3,9 @@
   "name": "yazooblu1",
   "main": "src/worker.ts",
   "compatibility_date": "2026-11-03",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "observability": {
     "enabled": true
   },
@@ -10,11 +13,7 @@
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application"
-  }
-}
-
-{
-  "name": "your-worker-or-pages-project",
+  },
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
