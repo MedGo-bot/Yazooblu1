@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "yazooblu1",
   "main": "src/worker.ts",
-  "compatibility_date": "2026-11-03",
+  "compatibility_date": "2026-11-18",
   "compatibility_flags": [
     "nodejs_compat"
   ],
@@ -12,12 +12,13 @@
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
-    "not_found_handling": "single-page-application"
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
   },
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "<YOUR_HYPERDRIVE_CONFIG_ID>"
+      "id": "6c65ec53853d48b19b44f8f1934e5ef7"
     }
   ]
 }
