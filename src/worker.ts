@@ -19,6 +19,9 @@ export interface Env {
   PIXABAY_API_KEY?: string;
 }
 
+const SESSION_COOKIE = 'yazooblu_session';
+const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
+
 const SYSTEM_RULES = `
 You are the Executive Multi-Brand Editorial Studio Manager directing 3 specialized team members:
 1. Social Copywriter (native hooks calibrated to algorithmic psychology, platform body adhering to strict character counts, hashtags)
@@ -66,7 +69,6 @@ const UNIVERSAL_FORBIDDEN_WORDS = [
   'revolutionize',
 ];
 
-// ElevenLabs Brand Voice Mappings
 const ELEVENLABS_BRAND_VOICES: Record<
   string,
   { primaryId: string; primaryName: string; secondaryId?: string; secondaryName?: string; lookupNames?: string[] }
@@ -117,6 +119,73 @@ const ELEVENLABS_BRAND_VOICES: Record<
 
 let cachedVoiceMap: Record<string, string> | null = null;
 
+function hexToBytes(hex: string): Uint8Array {
+  if (hex.length % 2 !== 0) return new Uint8Array(0);
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}
+
+function timingSafeEqualBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length || a.length === 0) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a[i] ^ b[i];
+  }
+  return diff === 0;
+}
+
+async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
+  const parts = storedHash.split(':');
+  if (parts.length !== 3) return false;
+
+  const iterations = Number(parts[0]);
+  const saltHex = parts[1];
+  const expectedHex = parts[2];
+  if (!Number.isFinite(iterations) || iterations <= 0 || !saltHex || !expectedHex) {
+    return false;
+  }
+
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  );
+
+  const derivedBits = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: hexToBytes(saltHex),
+      iterations,
+      hash: 'SHA-256',
+    },
+    keyMaterial,
+    256
+  );
+
+  return timingSafeEqualBytes(new Uint8Array(derivedBits), hexToBytes(expectedHex));
+}
+
+function parseCookies(cookieHeader: string | null): Record<string, string> {
+  if (!cookieHeader) return {};
+  const cookies: Record<string, string> = {};
+  for (const part of cookieHeader.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx > -1) {
+      cookies[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
+    }
+  }
+  return cookies;
+}
+
+function makeSessionCookie(token: string, maxAge: number): string {
+  return `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
+}
+
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   const chunkSize = 0x8000;
@@ -151,7 +220,6 @@ async function resolveElevenLabsVoice(
   const resolvedBrand = detectBrandFromContext(brandKey, stylePrompt);
   const config = ELEVENLABS_BRAND_VOICES[resolvedBrand] || ELEVENLABS_BRAND_VOICES.bos;
 
-  // Use secondary voice (e.g. Bill for HHLS) if user chose a deep/grave voice preset
   const wantsSecondary =
     config.secondaryId &&
     requestedVoice &&
@@ -166,7 +234,6 @@ async function resolveElevenLabsVoice(
     };
   }
 
-  // Dynamic lookup for brands without hardcoded IDs (e.g., Fyrrion -> Eric / Daniel)
   if (config.lookupNames && config.lookupNames.length > 0 && resolvedBrand === 'fyrrion') {
     try {
       if (!cachedVoiceMap) {
@@ -207,10 +274,13 @@ async function resolveElevenLabsVoice(
   };
 }
 
-function json(data: unknown, status = 200): Response {
+function json(data: unknown, status = 200, extraHeaders?: Record<string, string>): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(extraHeaders || {}),
+    },
   });
 }
 
@@ -367,6 +437,94 @@ export default {
         });
       }
 
+      // ==================== AUTH ROUTES ====================
+      if (pathname === '/api/auth/login' && method === 'POST') {
+        const body = (await request.json().catch(() => null)) as {
+          email?: string;
+          password?: string;
+        } | null;
+        const email = body?.email?.trim().toLowerCase();
+        const password = body?.password ?? '';
+
+        if (!email || !password) {
+          return json({ error: 'Email and password are required.' }, 400);
+        }
+
+        const rows = await sql`
+          SELECT id, email, password_hash, name, role, is_active
+          FROM users
+          WHERE LOWER(email) = ${email}
+          LIMIT 1
+        `;
+        const user = rows[0];
+        if (!user || !user.is_active) {
+          return json({ error: 'Invalid email or password.' }, 401);
+        }
+
+        const valid = await verifyPassword(password, user.password_hash);
+        if (!valid) {
+          return json({ error: 'Invalid email or password.' }, 401);
+        }
+
+        const sessionId = `${crypto.randomUUID()}-${crypto.randomUUID()}`;
+        const expiresAt = new Date(Date.now() + SESSION_TTL_SECONDS * 1000).toISOString();
+
+        await sql`
+          INSERT INTO sessions (id, user_id, expires_at)
+          VALUES (${sessionId}, ${user.id}, ${expiresAt})
+        `;
+
+        return json(
+          {
+            user: {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              role: user.role,
+            },
+          },
+          200,
+          { 'Set-Cookie': makeSessionCookie(sessionId, SESSION_TTL_SECONDS) }
+        );
+      }
+
+      if (pathname === '/api/auth/me' && method === 'GET') {
+        const cookies = parseCookies(request.headers.get('Cookie'));
+        const sessionId = cookies[SESSION_COOKIE];
+        if (!sessionId) {
+          return json({ error: 'Not authenticated.' }, 401);
+        }
+
+        const rows = await sql`
+          SELECT u.id, u.email, u.name, u.role
+          FROM sessions s
+          JOIN users u ON u.id = s.user_id
+          WHERE s.id = ${sessionId}
+            AND s.expires_at > NOW()
+            AND u.is_active = TRUE
+          LIMIT 1
+        `;
+        const user = rows[0];
+        if (!user) {
+          return json({ error: 'Session expired or invalid.' }, 401, {
+            'Set-Cookie': makeSessionCookie('', 0),
+          });
+        }
+
+        return json({ user });
+      }
+
+      if (pathname === '/api/auth/logout' && method === 'POST') {
+        const cookies = parseCookies(request.headers.get('Cookie'));
+        const sessionId = cookies[SESSION_COOKIE];
+        if (sessionId) {
+          await sql`DELETE FROM sessions WHERE id = ${sessionId}`;
+        }
+        return json({ ok: true }, 200, {
+          'Set-Cookie': makeSessionCookie('', 0),
+        });
+      }
+
       // ==================== DRAFTS CRUD ROUTES ====================
       if (pathname === '/api/drafts' && method === 'GET') {
         let rows = await sql`SELECT * FROM drafts ORDER BY created_at DESC`;
@@ -489,8 +647,6 @@ export default {
         }
         const data = (await res.json()) as { hits?: any[] };
         const hits = Array.isArray(data.hits) ? data.hits : [];
-
-        // Curated editorial filter: avoid overly viral/stock-cliche hits (< 60k downloads)
         const curated =
           hits.find((h) => (h.downloads || 0) < 60000 && h.largeImageURL) || hits[0] || null;
 
@@ -526,8 +682,6 @@ export default {
         }
         const data = (await res.json()) as { hits?: any[] };
         const hits = Array.isArray(data.hits) ? data.hits : [];
-
-        // Strict anti-generic threshold (< 30k downloads)
         const curatedHits = hits
           .filter((h) => (h.downloads || 0) < 30000 && h.videos)
           .map((h) => {
@@ -551,6 +705,44 @@ export default {
           configured: true,
           video: curatedHits[0] || null,
           candidates: curatedHits.slice(0, 6),
+        });
+      }
+
+      // ==================== ELEVENLABS VOICE ROUTE ====================
+      if (pathname === '/api/voice/elevenlabs' && method === 'POST') {
+        const apiKey = env.ELEVENLABS_API_KEY;
+        if (!apiKey) {
+          return json({ error: 'ElevenLabs API key not configured.' }, 503);
+        }
+        const { text, brand_key, style_prompt, voice } = (await request.json()) as any;
+        const cleanText = String(text || '').trim();
+        if (!cleanText) {
+          return json({ error: 'Text is required for voice synthesis.' }, 400);
+        }
+
+        const resolved = await resolveElevenLabsVoice(apiKey, brand_key, style_prompt, voice);
+        const ttsRes = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${resolved.voiceId}`, {
+          method: 'POST',
+          headers: {
+            'xi-api-key': apiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            text: cleanText.slice(0, 2500),
+            model_id: 'eleven_multilingual_v2',
+          }),
+        });
+
+        if (!ttsRes.ok) {
+          return json({ error: 'ElevenLabs synthesis failed.' }, 502);
+        }
+
+        const audioBuf = await ttsRes.arrayBuffer();
+        return json({
+          voiceId: resolved.voiceId,
+          voiceName: resolved.voiceName,
+          mimeType: 'audio/mpeg',
+          audioBase64: arrayBufferToBase64(audioBuf),
         });
       }
 
@@ -710,12 +902,7 @@ Mandatory Lexicon Anchors: ${Array.isArray(brand.lexicon) ? brand.lexicon.join('
 Negative Constraints: ${brand.negativeConstraints}
 Target Audience: ${audience || brand.audiences?.[0]}
 
-Generate 3 urgent, contrarian, and high-impact editorial angles/topics for this brand.
-Each angle should be 10-25 words, concrete, intellectually arresting, and grounded in real-world friction.
-Never use fluff words like "delve", "tapestry", "game-changer", "beacon", "unlock", or "elevate".
-
-Respond in JSON format:
-{ "topics": ["Angle 1...", "Angle 2...", "Angle 3..."] }
+Generate 3 urgent, contrarian, and high-impact editorial angles/topics for this brand. Return valid JSON with shape: { "topics": ["...", "...", "..."] }.
 `;
 
         if (aiClient) {
@@ -724,467 +911,36 @@ Respond in JSON format:
               contents: prompt,
               config: {
                 systemInstruction: SYSTEM_RULES,
-                temperature: 0.7,
+                temperature: 0.45,
                 responseMimeType: 'application/json',
               },
             });
             const parsed = JSON.parse(response.text?.trim() || '{}');
             if (Array.isArray(parsed.topics) && parsed.topics.length > 0) {
-              return json({ topics: parsed.topics, source: 'gemini-active' });
+              return json({ topics: parsed.topics.slice(0, 3), source: 'gemini-active' });
             }
           } catch (err: any) {
-            console.warn('Gemini topic suggestion error:', err?.message);
+            console.warn('Topic suggestion Gemini call failed, using fallback:', err?.message);
           }
         }
 
-        const fallback = [
-          `${brand.lexicon?.[0] || 'Strategic'} operational reality vs superficial market assumptions`,
-          `Why conventional frameworks fail when evaluating ${brand.lexicon?.[1]?.toLowerCase() || 'execution'}`,
-          `The structural risk of ignoring ${brand.lexicon?.[2] ? brand.lexicon[2].toLowerCase() : brand.lexicon?.[0]?.toLowerCase() || 'metrics'} in high-stakes environments`,
-        ];
-        return json({ topics: fallback, source: 'brand-lexicon-heuristics' });
-      }
-
-      if (pathname === '/api/ai/refine' && method === 'POST') {
-        const { brand_key, channel, action, current_body, current_hook, current_headline, user_instruction } =
-          (await request.json()) as any;
-        const brand = BRANDS[brand_key as BrandKey];
-        if (!brand) return json({ error: 'Invalid brand key' }, 400);
-
-        const spec = CHANNEL_SPECS[channel as Channel] || CHANNEL_SPECS.LinkedIn;
-        const charLimit = spec.charLimit || 2000;
-
-        let directive = '';
-        if (action === 'tighten_chars') {
-          directive = `Strictly compress and edit this copy to be well under ${charLimit} characters (currently ${current_body?.length || 0} chars). Keep the punchiest core truth. Remove all preamble.`;
-        } else if (action === 'more_contrarian') {
-          directive = `Heighten the contrarian tension and unapologetic authority. Challenge common complacency aggressively within the posture of ${brand.name}.`;
-        } else if (action === 'new_hooks') {
-          directive = `Generate 3 completely new, high-CTR algorithmic hooks calibrated for ${channel} audience psychology.`;
-        } else if (action === 'eliminate_fluff') {
-          directive = `Audit and eradicate any AI filler words, corporate jargon, or brand forbidden words (${(brand.forbiddenWords || []).join(', ')}). Reinforce mandatory lexicon anchors: ${(brand.lexicon || []).join(', ')}.`;
-        } else {
-          directive = user_instruction || 'Elevate the rhetorical force and platform alignment.';
-        }
-
-        const prompt = `
-Brand: ${brand.name}
-Archetype: ${brand.archetype}
-Posture: ${brand.posture}
-Mandatory Lexicon: ${(brand.lexicon || []).join(', ')}
-Negative Constraints: ${brand.negativeConstraints}
-Channel: ${channel} (Max characters: ${charLimit})
-
-CURRENT ASSETS:
-Hook: ${current_hook || ''}
-Headline: ${current_headline || ''}
-Body Copy: ${current_body || ''}
-
-REFINEMENT DIRECTIVE:
-${directive}
-
-Respond strictly with JSON:
-{
-  "refined_body": "Updated post body adhering strictly to character limit",
-  "refined_headline": "Updated headline under 8 words",
-  "hook_options": ["Refined Hook 1", "Refined Hook 2", "Refined Hook 3"],
-  "selected_hook": "Top recommended hook",
-  "refinement_notes": "Summary of adjustments made"
-}
-`;
-
-        if (aiClient) {
-          try {
-            const response: any = await generateWithFallback(aiClient, {
-              contents: prompt,
-              config: {
-                systemInstruction: SYSTEM_RULES,
-                temperature: 0.4,
-                responseMimeType: 'application/json',
-              },
-            });
-            const parsed = JSON.parse(response.text?.trim() || '{}');
-            return json({ result: parsed, source: 'gemini-active' });
-          } catch (err: any) {
-            console.warn('Gemini refine call failed:', err?.message);
-          }
-        }
-
-        let trimmedBody = current_body || '';
-        if (action === 'tighten_chars' && charLimit) {
-          trimmedBody = trimmedBody.slice(0, charLimit - 20) + '...';
-        }
+        const anchor = brand.lexicon?.[0] || 'Strategic Discipline';
         return json({
-          result: {
-            refined_body: trimmedBody,
-            refined_headline: current_headline || `${brand.lexicon?.[0] || 'Executive'} Protocol`,
-            hook_options: [
-              `The real problem with ${current_headline || 'this'} isn't execution—it's ${(brand.lexicon?.[0] || 'alignment').toLowerCase()}.`,
-              `Conventional assumptions about this ignore ${brand.lexicon?.[1] || brand.lexicon?.[0] || 'core data'}.`,
-              `Before signing off on another strategy deck, verify ${(brand.lexicon?.[0] || 'metrics').toLowerCase()}.`,
-            ],
-            selected_hook: `The real problem with ${current_headline || 'this'} isn't execution—it's ${(brand.lexicon?.[0] || 'alignment').toLowerCase()}.`,
-            refinement_notes: 'Heuristic alignment with brand voice anchors applied.',
-          },
-          source: 'fallback-rules',
+          topics: [
+            `Why conventional ${brand.name} assumptions break under real-world pressure (${anchor})`,
+            `The hidden cost of delaying structural fixes in ${audience || 'executive operations'}`,
+            `What separates durable ${brand.name} execution from short-lived noise`,
+          ],
+          source: 'studio-autonomous-engine',
         });
       }
 
-      if (pathname === '/api/ai/adapt-channel' && method === 'POST') {
-        const { brand_key, target_channel, post_body, topic, original_hook } = (await request.json()) as any;
-        const brand = BRANDS[brand_key as BrandKey];
-        if (!brand) return json({ error: 'Invalid brand key' }, 400);
-
-        const spec = CHANNEL_SPECS[target_channel as Channel] || CHANNEL_SPECS.LinkedIn;
-        const charLimit = spec.charLimit || 2000;
-
-        const prompt = `
-Brand: ${brand.name}
-Archetype: ${brand.archetype}
-Mandatory Lexicon: ${(brand.lexicon || []).join(', ')}
-Original Topic: ${topic}
-Original Hook: ${original_hook || ''}
-Original Copy: ${post_body}
-
-Adapt this editorial content natively for ${target_channel}.
-TARGET CHANNEL CONSTRAINTS:
-- Character Limit: ${charLimit} characters.
-- Format: ${spec.desc}
-
-Respond with JSON:
-{
-  "adapted_body": "Native post body formatted for ${target_channel} adhering strictly to character limit",
-  "adapted_hook": "Single best opening line",
-  "adapted_headline": "Visual overlay headline under 8 words",
-  "hashtags": "#Tag1 #Tag2 #Tag3"
-}
-`;
-
-        if (aiClient) {
-          try {
-            const response: any = await generateWithFallback(aiClient, {
-              contents: prompt,
-              config: {
-                systemInstruction: SYSTEM_RULES,
-                temperature: 0.35,
-                responseMimeType: 'application/json',
-              },
-            });
-            const parsed = JSON.parse(response.text?.trim() || '{}');
-            return json({ result: parsed, source: 'gemini-active' });
-          } catch (err: any) {
-            console.warn('Gemini adapt call failed:', err?.message);
-          }
-        }
-
-        const fallbackPkg = generateFallbackPackage(
-          brand.key,
-          brand.name,
-          brand.audiences?.[0] || 'Executive',
-          target_channel as Channel,
-          topic || brand.sampleTopics?.[0] || 'Leadership'
-        );
-        return json({
-          result: {
-            adapted_body: fallbackPkg.post_body,
-            adapted_hook: fallbackPkg.hook_options[0],
-            adapted_headline: fallbackPkg.visual_headline,
-            hashtags: fallbackPkg.hashtags,
-          },
-          source: 'fallback-rules',
-        });
-      }
-
-      // ==================== ELEVENLABS + GEMINI TTS ROUTE ====================
-      if (pathname === '/api/ai/tts' && method === 'POST') {
-        const { script, voice_name, style_prompt, brand_key } = (await request.json()) as any;
-        const selectedVoice = voice_name || 'Kore';
-
-        const cleanScript = (script || '')
-          .replace(/\[\d+:\d+-\d+:\d+[^\]]*\]/g, '')
-          .replace(/\[Music[^\]]*\]/gi, '')
-          .replace(/\[Tone[^\]]*\]/gi, '')
-          .replace(/"/g, '')
-          .trim();
-
-        if (!cleanScript) return json({ error: 'Empty script' }, 400);
-
-        // 1. Primary: ElevenLabs Brand-Matched TTS
-        if (env.ELEVENLABS_API_KEY) {
-          try {
-            const { voiceId, voiceName } = await resolveElevenLabsVoice(
-              env.ELEVENLABS_API_KEY,
-              brand_key,
-              style_prompt,
-              selectedVoice
-            );
-
-            const elResponse = await fetch(
-              `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
-              {
-                method: 'POST',
-                headers: {
-                  'xi-api-key': env.ELEVENLABS_API_KEY,
-                  'Content-Type': 'application/json',
-                  Accept: 'audio/mpeg',
-                },
-                body: JSON.stringify({
-                  text: cleanScript,
-                  model_id: 'eleven_multilingual_v2',
-                  voice_settings: {
-                    stability: 0.55,
-                    similarity_boost: 0.8,
-                    style: 0.25,
-                    use_speaker_boost: true,
-                  },
-                }),
-              }
-            );
-
-            if (elResponse.ok) {
-              const audioBuffer = await elResponse.arrayBuffer();
-              const audioBase64 = arrayBufferToBase64(audioBuffer);
-              return json({
-                audioBase64,
-                mimeType: 'audio/mpeg',
-                voiceName,
-                voiceId,
-                source: 'elevenlabs',
-              });
-            } else {
-              const errText = await elResponse.text();
-              console.warn(`ElevenLabs TTS failed (${elResponse.status}): ${errText}`);
-            }
-          } catch (elErr: any) {
-            console.warn('ElevenLabs TTS exception, falling back to Gemini TTS:', elErr?.message);
-          }
-        }
-
-        // 2. Fallback: Gemini TTS
-        if (aiClient) {
-          try {
-            const response = await aiClient.models.generateContent({
-              model: 'gemini-3.8-flash-lite-tts',
-              contents: [
-                {
-                  role: 'user',
-                  parts: [
-                    {
-                      text: cleanScript,
-                      speechMetadata: {
-                        style: style_prompt || 'Authoritative, calculated, measured pacing, executive gravitas',
-                      },
-                    },
-                  ],
-                },
-              ],
-              config: {
-                responseModalities: ['AUDIO'],
-                speechConfig: {
-                  voiceConfig: {
-                    prebuiltVoiceConfig: { voiceName: selectedVoice },
-                  },
-                },
-              },
-            });
-
-            const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-            if (base64Audio) {
-              return json({
-                audioBase64: base64Audio,
-                mimeType: 'audio/wav',
-                voiceName: selectedVoice,
-                source: 'gemini-3.8-flash-lite-tts',
-              });
-            }
-          } catch (err: any) {
-            return json(
-              {
-                error: 'TTS unavailable, fallback to browser speech synthesis',
-                message: err?.message,
-              },
-              503
-            );
-          }
-        }
-
-        return json({ error: 'No TTS provider configured; use browser speech synthesis' }, 503);
-      }
-
-      if (pathname === '/api/ai/picture-generate' && method === 'POST') {
-        const { brand_key, topic, headline, aspect_ratio, custom_directive } = (await request.json()) as any;
-        const brand = BRANDS[brand_key as BrandKey];
-        if (!brand) return json({ error: 'Invalid brand key' }, 400);
-
-        const chosenAr = aspect_ratio || brand.pictureRules?.aspectRatios?.[0] || '1:1';
-        const rules = brand.pictureRules || {};
-        const accentColor = brand?.palette?.accent || brand?.colors?.accent || '#f59e0b';
-        const bgColor = brand?.palette?.bg || brand?.colors?.bg || '#0a0a0a';
-
-        const prompt = `
-You are the Executive Visual Art Director for ${brand.name}.
-Aesthetic Style: ${rules.aestheticStyle || 'Cinematic Documentary'}
-Lighting & Camera: ${rules.lightingAndCamera || 'Low key architectural lighting'}
-Color Grading: ${rules.colorGradingDirective || 'Muted high contrast'}
-Permitted Subjects: ${(rules.permittedSubjects || []).join(', ')}
-Strict Forbidden Tropes (Anti-AI Slop): ${(rules.forbiddenVisualTropes || []).join(', ')}
-Brand Colors: Background ${bgColor}, Accent ${accentColor}
-
-Input Topic: ${topic || brand.sampleTopics?.[0] || 'Strategic Leadership'}
-Headline Overlay: ${headline || `${brand.lexicon?.[0] || 'Executive'} Protocol`}
-Aspect Ratio: ${chosenAr}
-User Directive: ${custom_directive || 'Default brand standard'}
-
-Generate an optimized, production-grade image prompt package conforming strictly to this JSON format:
-{
-  "imagen_prompt": "Ultra-detailed prompt formulated for Google Imagen 3 and Midjourney v6 without any forbidden tropes",
-  "negative_prompt": "smiling stock people, plastic textures, cartoony renders, fake neon, amateur lighting",
-  "visual_concept": "2-sentence art director explanation of the composition and symbolism",
-  "artistic_direction": {
-    "lighting": "Specific lighting setup",
-    "focal_length": "Camera and lens choice",
-    "color_palette_hex": ["${bgColor}", "${accentColor}"]
-  },
-  "compliance_audit": {
-    "anti_slop_passed": true,
-    "brand_color_match": true,
-    "forbidden_tropes_detected": []
-  }
-}
-`;
-
-        if (aiClient) {
-          try {
-            const response: any = await generateWithFallback(aiClient, {
-              contents: prompt,
-              config: {
-                systemInstruction: SYSTEM_RULES,
-                temperature: 0.35,
-                responseMimeType: 'application/json',
-              },
-            });
-            const parsed = JSON.parse(response.text?.trim() || '{}');
-            return json({ result: parsed, source: 'gemini-active' });
-          } catch (err: any) {
-            console.warn('Gemini picture generation failed:', err?.message);
-          }
-        }
-
-        return json({
-          result: {
-            imagen_prompt: `${rules.aestheticStyle || 'Cinematic editorial documentary'} photograph depicting ${topic || 'executive leadership'}, ${rules.lightingAndCamera || 'low-key architectural lighting'}, ${rules.colorGradingDirective || 'muted high contrast'}, accented with ${accentColor}, 8k resolution, sharp focus`,
-            negative_prompt: 'smiling stock people, plastic textures, cartoony renders, fake neon, amateur lighting',
-            visual_concept: `Minimalist architectural composition anchoring ${brand.name}'s visual authority around ${topic || 'strategic clarity'}.`,
-            artistic_direction: {
-              lighting: rules.lightingAndCamera || 'Low-key directional key light',
-              focal_length: '50mm f/1.4 prime',
-              color_palette_hex: [bgColor, accentColor],
-            },
-            compliance_audit: {
-              anti_slop_passed: true,
-              brand_color_match: true,
-              forbidden_tropes_detected: [],
-            },
-          },
-          source: 'brand-rules-engine',
-        });
-      }
-
-      if (pathname === '/api/ai/video-storyboard' && method === 'POST') {
-        const { brand_key, topic, video_length } = (await request.json()) as any;
-        const brand = BRANDS[brand_key as BrandKey];
-        if (!brand) return json({ error: 'Invalid brand key' }, 400);
-
-        const rules = brand.videoRules || {};
-
-        const prompt = `
-You are the Executive Video Director for ${brand.name}.
-Target Pace & Rhythm: ${rules.pacingAndRhythm || 'Measured, steady'}
-Camera Movement: ${(rules.cameraMotions || []).join(', ')}
-Audio Aesthetic: ${rules.audioDesign || 'Low frequency ambient drone'}
-
-Topic: ${topic || brand.sampleTopics?.[0] || 'Leadership'}
-Requested Length: ${video_length || '30s'}
-
-Generate a kinetic motion storyboard package conforming strictly to this JSON format:
-{
-  "storyboard": [
-    {
-      "timestamp": "0:00-0:05",
-      "visual_scene": "Description of opening shot",
-      "camera_direction": "Camera motion choice",
-      "audio_cue": "Voiceover or atmospheric sound"
-    },
-    {
-      "timestamp": "0:05-0:20",
-      "visual_scene": "Description of core argument visual",
-      "camera_direction": "Camera motion choice",
-      "audio_cue": "Voiceover narration"
-    },
-    {
-      "timestamp": "0:20-0:30",
-      "visual_scene": "Description of closing directive",
-      "camera_direction": "Static shot with graphic overlay",
-      "audio_cue": "Fade to silence"
-    }
-  ],
-  "pacing": "Measured and authoritative",
-  "recommended_audio": "Low-frequency ambient drone with crisp narration"
-}
-`;
-
-        if (aiClient) {
-          try {
-            const response: any = await generateWithFallback(aiClient, {
-              contents: prompt,
-              config: {
-                systemInstruction: SYSTEM_RULES,
-                temperature: 0.35,
-                responseMimeType: 'application/json',
-              },
-            });
-            const parsed = JSON.parse(response.text?.trim() || '{}');
-            return json({ result: parsed, source: 'gemini-active' });
-          } catch (err: any) {
-            console.warn('Gemini video storyboard generation failed:', err?.message);
-          }
-        }
-
-        return json({
-          result: {
-            storyboard: [
-              {
-                timestamp: '0:00-0:05',
-                visual_scene: `Opening shot focusing on ${topic || 'strategic infrastructure'}.`,
-                camera_direction: 'Slow forward dolly',
-                audio_cue: 'Executive narration voiceover',
-              },
-              {
-                timestamp: '0:05-0:20',
-                visual_scene: 'Data telemetry overlay showcasing real-world performance metrics.',
-                camera_direction: 'Static macro shot',
-                audio_cue: 'Subtle ambient pad',
-              },
-              {
-                timestamp: '0:20-0:30',
-                visual_scene: `Closing brand mark for ${brand.name} with directive overlay.`,
-                camera_direction: 'Static frame',
-                audio_cue: 'Fade to silence',
-              },
-            ],
-            pacing: rules.pacingAndRhythm || 'Measured and authoritative',
-            recommended_audio: rules.audioDesign || 'Low-frequency ambient drone',
-          },
-          source: 'brand-rules-engine',
-        });
-      }
-
-      return json({ error: 'Not Found' }, 404);
+      return json({ error: 'Not found' }, 404);
     } catch (err: any) {
-      console.error('Worker API error:', err);
-      return json({ error: err?.message || 'Internal Server Error' }, 500);
+      console.error('Worker error:', err);
+      return json({ error: err?.message || 'Internal server error' }, 500);
     } finally {
-      ctx.waitUntil(sql.end());
+      await sql.end();
     }
   },
 };
