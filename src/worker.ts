@@ -15,6 +15,8 @@ export interface Env {
   HYPERDRIVE: Hyperdrive;
   ASSETS: Fetcher;
   GEMINI_API_KEY?: string;
+  ELEVENLABS_API_KEY?: string;
+  PIXABAY_API_KEY?: string;
 }
 
 const SYSTEM_RULES = `
@@ -50,6 +52,160 @@ QUALITY CONSTRAINTS:
 - Provide 3 distinct hooks calibrated to platform psychology.
 - Output valid JSON only matching the schema.
 `;
+
+const UNIVERSAL_FORBIDDEN_WORDS = [
+  'delve',
+  'tapestry',
+  'game-changer',
+  'beacon',
+  'unlock',
+  'elevate',
+  'synergy',
+  'paradigm shift',
+  'cutting-edge',
+  'revolutionize',
+];
+
+// ElevenLabs Brand Voice Mappings
+const ELEVENLABS_BRAND_VOICES: Record<
+  string,
+  { primaryId: string; primaryName: string; secondaryId?: string; secondaryName?: string; lookupNames?: string[] }
+> = {
+  bos: {
+    primaryId: '6xPz2opT0y5qtoRh1U1Y',
+    primaryName: 'Christian (Serious TV Host)',
+  },
+  bes_outkast: {
+    primaryId: '6xPz2opT0y5qtoRh1U1Y',
+    primaryName: 'Christian (Serious TV Host)',
+  },
+  bes_health: {
+    primaryId: 'zJ6rpe8s6MyLLO8MBnmq',
+    primaryName: 'California dreaming',
+  },
+  porch_md: {
+    primaryId: 'zJ6rpe8s6MyLLO8MBnmq',
+    primaryName: 'California dreaming',
+  },
+  nuecofab: {
+    primaryId: 'QskpmzLHRFPTEOkFlnAI',
+    primaryName: 'Husky',
+  },
+  bhw_pr: {
+    primaryId: 'ZmVD7qefWdrFFI6oxkBw',
+    primaryName: 'Executive Officer From California',
+    lookupNames: ['Executive Officer from California', 'San Francisco/Bay area Gen Z'],
+  },
+  hhls: {
+    primaryId: 'XrExE9yKIg1WjnnlVkGX',
+    primaryName: 'Matilda (Knowledgeable Professional)',
+    secondaryId: 'pqHfZKP75CvOlQylNhV4',
+    secondaryName: 'Bill (Wise, Mature, Balanced)',
+  },
+  hilton_head: {
+    primaryId: 'XrExE9yKIg1WjnnlVkGX',
+    primaryName: 'Matilda (Knowledgeable Professional)',
+    secondaryId: 'pqHfZKP75CvOlQylNhV4',
+    secondaryName: 'Bill (Wise, Mature, Balanced)',
+  },
+  fyrrion: {
+    primaryId: 'zJ6rpe8s6MyLLO8MBnmq',
+    primaryName: 'Eric / Daniel',
+    lookupNames: ['Eric', 'Daniel'],
+  },
+};
+
+let cachedVoiceMap: Record<string, string> | null = null;
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
+function detectBrandFromContext(brandKey?: string, stylePrompt?: string): string {
+  if (brandKey && ELEVENLABS_BRAND_VOICES[brandKey.toLowerCase()]) {
+    return brandKey.toLowerCase();
+  }
+  const text = `${brandKey || ''} ${stylePrompt || ''}`.toLowerCase();
+  if (text.includes('nuecofab')) return 'nuecofab';
+  if (text.includes('bh&w') || text.includes('bhw') || text.includes('public relations')) return 'bhw_pr';
+  if (text.includes('fyrrion')) return 'fyrrion';
+  if (text.includes('hhls') || text.includes('hilton head')) return 'hhls';
+  if (text.includes('health') || text.includes('wellness') || text.includes('porch')) return 'bes_health';
+  if (text.includes('bos') || text.includes('outkast')) return 'bos';
+  return 'bos';
+}
+
+async function resolveElevenLabsVoice(
+  apiKey: string,
+  brandKey?: string,
+  stylePrompt?: string,
+  requestedVoice?: string
+): Promise<{ voiceId: string; voiceName: string }> {
+  const resolvedBrand = detectBrandFromContext(brandKey, stylePrompt);
+  const config = ELEVENLABS_BRAND_VOICES[resolvedBrand] || ELEVENLABS_BRAND_VOICES.bos;
+
+  // Use secondary voice (e.g. Bill for HHLS) if user chose a deep/grave voice preset
+  const wantsSecondary =
+    config.secondaryId &&
+    requestedVoice &&
+    ['Fenrir', 'Charon', 'Bill', 'Daniel'].some((v) =>
+      requestedVoice.toLowerCase().includes(v.toLowerCase())
+    );
+
+  if (wantsSecondary && config.secondaryId) {
+    return {
+      voiceId: config.secondaryId,
+      voiceName: config.secondaryName || config.primaryName,
+    };
+  }
+
+  // Dynamic lookup for brands without hardcoded IDs (e.g., Fyrrion -> Eric / Daniel)
+  if (config.lookupNames && config.lookupNames.length > 0 && resolvedBrand === 'fyrrion') {
+    try {
+      if (!cachedVoiceMap) {
+        const res = await fetch('https://api.elevenlabs.io/v1/voices', {
+          headers: { 'xi-api-key': apiKey },
+        });
+        if (res.ok) {
+          const data = (await res.json()) as { voices?: Array<{ voice_id: string; name: string }> };
+          cachedVoiceMap = {};
+          for (const v of data.voices || []) {
+            cachedVoiceMap[v.name.toLowerCase()] = v.voice_id;
+          }
+        }
+      }
+      if (cachedVoiceMap) {
+        const preferredOrder =
+          requestedVoice && ['Fenrir', 'Charon', 'Daniel'].includes(requestedVoice)
+            ? ['daniel', 'eric']
+            : ['eric', 'daniel'];
+        for (const candidate of preferredOrder) {
+          const matchedKey = Object.keys(cachedVoiceMap).find((k) => k.includes(candidate));
+          if (matchedKey) {
+            return {
+              voiceId: cachedVoiceMap[matchedKey],
+              voiceName: candidate === 'eric' ? 'Eric (Smooth, Trustworthy)' : 'Daniel (Steady Broadcaster)',
+            };
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('ElevenLabs voice directory lookup failed, using default:', e);
+    }
+  }
+
+  return {
+    voiceId: config.primaryId,
+    voiceName: config.primaryName,
+  };
+}
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -205,6 +361,8 @@ export default {
         return json({
           status: 'ok',
           database: 'connected',
+          elevenlabs_configured: Boolean(env.ELEVENLABS_API_KEY),
+          pixabay_configured: Boolean(env.PIXABAY_API_KEY),
           server_time: result[0]?.server_time,
         });
       }
@@ -286,6 +444,17 @@ export default {
         return json(HOOK_LIBRARY || []);
       }
 
+      if (pathname === '/api/forbidden-words' && method === 'GET') {
+        const byBrand: Record<string, string[]> = {};
+        for (const [key, b] of Object.entries(BRANDS)) {
+          byBrand[key] = b.forbiddenWords || [];
+        }
+        return json({
+          universal: UNIVERSAL_FORBIDDEN_WORDS,
+          byBrand,
+        });
+      }
+
       const brandRulesMatch = pathname.match(/^\/api\/brands\/([^/]+)\/rules$/);
       if (brandRulesMatch && method === 'GET') {
         const brand_key = decodeURIComponent(brandRulesMatch[1]);
@@ -299,8 +468,149 @@ export default {
         });
       }
 
+      // ==================== PIXABAY MEDIA CURATION ROUTES ====================
+      if (pathname === '/api/media/pixabay-status' && method === 'GET') {
+        return json({ configured: Boolean(env.PIXABAY_API_KEY) });
+      }
+
+      if (pathname === '/api/media/pixabay-photo' && method === 'POST') {
+        const apiKey = env.PIXABAY_API_KEY;
+        if (!apiKey) {
+          return json({ configured: false, photo: null });
+        }
+        const { query, orientation } = (await request.json()) as any;
+        const q = encodeURIComponent((query || 'architecture').trim());
+        const orient = orientation === 'vertical' || orientation === 'horizontal' ? orientation : 'all';
+        const pixabayUrl = `https://pixabay.com/api/?key=${apiKey}&q=${q}&image_type=photo&orientation=${orient}&safesearch=true&per_page=15`;
+
+        const res = await fetch(pixabayUrl);
+        if (!res.ok) {
+          return json({ configured: true, photo: null, error: 'Pixabay photo lookup failed' });
+        }
+        const data = (await res.json()) as { hits?: any[] };
+        const hits = Array.isArray(data.hits) ? data.hits : [];
+
+        // Curated editorial filter: avoid overly viral/stock-cliche hits (< 60k downloads)
+        const curated =
+          hits.find((h) => (h.downloads || 0) < 60000 && h.largeImageURL) || hits[0] || null;
+
+        if (!curated) {
+          return json({ configured: true, photo: null });
+        }
+
+        return json({
+          configured: true,
+          photo: {
+            id: curated.id,
+            url: curated.largeImageURL || curated.webformatURL,
+            previewUrl: curated.webformatURL,
+            user: curated.user,
+            downloads: curated.downloads,
+            tags: curated.tags,
+          },
+        });
+      }
+
+      if (pathname === '/api/media/pixabay-video' && method === 'POST') {
+        const apiKey = env.PIXABAY_API_KEY;
+        if (!apiKey) {
+          return json({ configured: false, video: null, candidates: [] });
+        }
+        const { query } = (await request.json()) as any;
+        const q = encodeURIComponent((query || 'architecture').trim());
+        const pixabayUrl = `https://pixabay.com/api/videos/?key=${apiKey}&q=${q}&safesearch=true&per_page=20`;
+
+        const res = await fetch(pixabayUrl);
+        if (!res.ok) {
+          return json({ configured: true, video: null, candidates: [] });
+        }
+        const data = (await res.json()) as { hits?: any[] };
+        const hits = Array.isArray(data.hits) ? data.hits : [];
+
+        // Strict anti-generic threshold (< 30k downloads)
+        const curatedHits = hits
+          .filter((h) => (h.downloads || 0) < 30000 && h.videos)
+          .map((h) => {
+            const bestStream =
+              h.videos?.medium?.url ||
+              h.videos?.large?.url ||
+              h.videos?.small?.url ||
+              h.videos?.tiny?.url;
+            return {
+              id: h.id,
+              url: bestStream,
+              duration: h.duration,
+              user: h.user,
+              downloads: h.downloads,
+              tags: h.tags,
+            };
+          })
+          .filter((v) => Boolean(v.url));
+
+        return json({
+          configured: true,
+          video: curatedHits[0] || null,
+          candidates: curatedHits.slice(0, 6),
+        });
+      }
+
       // ==================== AI GENERATION ROUTES ====================
       const aiClient = getAiClient(env);
+
+      if (pathname === '/api/ai/audit' && method === 'POST') {
+        const { brand_key, channel, text } = (await request.json()) as any;
+        const brand = BRANDS[brand_key as BrandKey];
+        const content = (text || '').trim();
+        const lower = content.toLowerCase();
+
+        const forbiddenPool = [
+          ...UNIVERSAL_FORBIDDEN_WORDS,
+          ...(brand?.forbiddenWords || []),
+        ];
+        const violations = forbiddenPool.filter((word) => lower.includes(word.toLowerCase()));
+        const lexiconMatches = (brand?.lexicon || []).filter((term) =>
+          lower.includes(term.toLowerCase())
+        );
+
+        const spec = channel ? CHANNEL_SPECS[channel as Channel] : undefined;
+        const overLimit = spec?.charLimit ? content.length > spec.charLimit : false;
+
+        let score = 92 - violations.length * 14 + Math.min(lexiconMatches.length * 4, 8);
+        if (overLimit) score -= 12;
+        score = Math.max(20, Math.min(100, score));
+
+        const suggestions: string[] = [];
+        if (violations.length > 0) {
+          suggestions.push(`Remove flagged terms: ${violations.join(', ')}.`);
+        }
+        if (lexiconMatches.length === 0 && brand?.lexicon?.length) {
+          suggestions.push(
+            `Anchor copy with core ${brand.name} lexicon: ${brand.lexicon.slice(0, 2).join(', ')}.`
+          );
+        }
+        if (overLimit && spec?.charLimit) {
+          suggestions.push(
+            `Trim copy from ${content.length} to under ${spec.charLimit} characters for ${channel}.`
+          );
+        }
+        if (suggestions.length === 0) {
+          suggestions.push('Voice posture and lexical discipline align with studio standards.');
+        }
+
+        return json({
+          result: {
+            score,
+            status: violations.length === 0 && !overLimit ? 'passed' : 'warning',
+            violations,
+            lexiconMatches,
+            suggestions,
+            summary:
+              violations.length === 0
+                ? `${brand?.name || 'Brand'} voice posture verified (${score}/100).`
+                : `${violations.length} lexical violation(s) detected for ${brand?.name || 'brand'}.`,
+          },
+        });
+      }
 
       if (pathname === '/api/generate' && method === 'POST') {
         const { brand_key, audience, channel, topic, magazine_column } = (await request.json()) as any;
@@ -313,7 +623,7 @@ Brand Persona: ${brand.archetype}
 Rhetorical Posture: ${brand.posture}
 Mandatory Lexicon Anchors: ${Array.isArray(brand.lexicon) ? brand.lexicon.join(', ') : ''}
 Negative Constraints: ${brand.negativeConstraints}
-Forbidden Slang/Terms: ${[...(brand.forbiddenWords || []), 'delve', 'tapestry', 'game-changer', 'beacon', 'unlock', 'elevate'].join(', ')}
+Forbidden Slang/Terms: ${[...(brand.forbiddenWords || []), ...UNIVERSAL_FORBIDDEN_WORDS].join(', ')}
 ${magazine_column ? `Magazine Column / Section Desk: ${magazine_column}` : ''}
 
 Target Audience Segment: ${audience}
@@ -585,8 +895,9 @@ Respond with JSON:
         });
       }
 
+      // ==================== ELEVENLABS + GEMINI TTS ROUTE ====================
       if (pathname === '/api/ai/tts' && method === 'POST') {
-        const { script, voice_name, style_prompt } = (await request.json()) as any;
+        const { script, voice_name, style_prompt, brand_key } = (await request.json()) as any;
         const selectedVoice = voice_name || 'Kore';
 
         const cleanScript = (script || '')
@@ -598,6 +909,58 @@ Respond with JSON:
 
         if (!cleanScript) return json({ error: 'Empty script' }, 400);
 
+        // 1. Primary: ElevenLabs Brand-Matched TTS
+        if (env.ELEVENLABS_API_KEY) {
+          try {
+            const { voiceId, voiceName } = await resolveElevenLabsVoice(
+              env.ELEVENLABS_API_KEY,
+              brand_key,
+              style_prompt,
+              selectedVoice
+            );
+
+            const elResponse = await fetch(
+              `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+              {
+                method: 'POST',
+                headers: {
+                  'xi-api-key': env.ELEVENLABS_API_KEY,
+                  'Content-Type': 'application/json',
+                  Accept: 'audio/mpeg',
+                },
+                body: JSON.stringify({
+                  text: cleanScript,
+                  model_id: 'eleven_multilingual_v2',
+                  voice_settings: {
+                    stability: 0.55,
+                    similarity_boost: 0.8,
+                    style: 0.25,
+                    use_speaker_boost: true,
+                  },
+                }),
+              }
+            );
+
+            if (elResponse.ok) {
+              const audioBuffer = await elResponse.arrayBuffer();
+              const audioBase64 = arrayBufferToBase64(audioBuffer);
+              return json({
+                audioBase64,
+                mimeType: 'audio/mpeg',
+                voiceName,
+                voiceId,
+                source: 'elevenlabs',
+              });
+            } else {
+              const errText = await elResponse.text();
+              console.warn(`ElevenLabs TTS failed (${elResponse.status}): ${errText}`);
+            }
+          } catch (elErr: any) {
+            console.warn('ElevenLabs TTS exception, falling back to Gemini TTS:', elErr?.message);
+          }
+        }
+
+        // 2. Fallback: Gemini TTS
         if (aiClient) {
           try {
             const response = await aiClient.models.generateContent({
@@ -637,7 +1000,7 @@ Respond with JSON:
           } catch (err: any) {
             return json(
               {
-                error: 'Gemini TTS unavailable, fallback to browser speech synthesis',
+                error: 'TTS unavailable, fallback to browser speech synthesis',
                 message: err?.message,
               },
               503
@@ -645,7 +1008,7 @@ Respond with JSON:
           }
         }
 
-        return json({ error: 'Gemini API client not configured for TTS; use browser speech synthesis' }, 503);
+        return json({ error: 'No TTS provider configured; use browser speech synthesis' }, 503);
       }
 
       if (pathname === '/api/ai/picture-generate' && method === 'POST') {
@@ -703,18 +1066,18 @@ Generate an optimized, production-grade image prompt package conforming strictly
             const parsed = JSON.parse(response.text?.trim() || '{}');
             return json({ result: parsed, source: 'gemini-active' });
           } catch (err: any) {
-            console.warn('Gemini picture prompt generation failed:', err?.message);
+            console.warn('Gemini picture generation failed:', err?.message);
           }
         }
 
         return json({
           result: {
-            imagen_prompt: `${rules.promptTemplate || 'Cinematic architectural render'} Featuring architectural focus on ${topic || brand.sampleTopics?.[0] || 'strategy'}, illuminated with ${accentColor} highlights on ${bgColor}. --ar ${chosenAr}`,
-            negative_prompt: (rules.forbiddenVisualTropes || []).join(', ') || 'stock photos, low resolution, plastic',
-            visual_concept: `Artistic visual for ${brand.name} highlighting ${brand.lexicon?.[0] || 'strategy'} with ${rules.aestheticStyle || 'cinematic style'}.`,
+            imagen_prompt: `${rules.aestheticStyle || 'Cinematic editorial documentary'} photograph depicting ${topic || 'executive leadership'}, ${rules.lightingAndCamera || 'low-key architectural lighting'}, ${rules.colorGradingDirective || 'muted high contrast'}, accented with ${accentColor}, 8k resolution, sharp focus`,
+            negative_prompt: 'smiling stock people, plastic textures, cartoony renders, fake neon, amateur lighting',
+            visual_concept: `Minimalist architectural composition anchoring ${brand.name}'s visual authority around ${topic || 'strategic clarity'}.`,
             artistic_direction: {
-              lighting: rules.lightingAndCamera || 'Documentary side lighting',
-              focal_length: '35mm Leica Prime',
+              lighting: rules.lightingAndCamera || 'Low-key directional key light',
+              focal_length: '50mm f/1.4 prime',
               color_palette_hex: [bgColor, accentColor],
             },
             compliance_audit: {
