@@ -18,7 +18,8 @@
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "6c65ec53853d48b19b44f8f1934e5ef7"
+      "id": "6c65ec53853d48b19b44f8f1934e5ef7",
+      "localConnectionString": "postgres://neondb_owner:YOUR_PASSWORD@YOUR_NEON_HOST/YOUR_DB_NAME?sslmode=require"
     }
   ]
 }
