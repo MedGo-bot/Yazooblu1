@@ -2,20 +2,33 @@ import React, { useState, useEffect } from 'react';
 import { ProductionStudio } from './components/ProductionStudio';
 import { BrandMatrixViewer } from './components/BrandMatrixViewer';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { SignInPage } from './components/SignInPage';
 import { ProductionPackage, BRANDS, normalizePackage, BrandKey } from './types';
-import { 
-  LayoutGrid, 
-  Calendar, 
-  FolderKanban, 
-  BookOpen, 
-  Clock, 
-  CheckCircle2, 
-  Activity, 
+import {
+  LayoutGrid,
+  Calendar,
+  FolderKanban,
+  BookOpen,
+  Clock,
+  CheckCircle2,
+  Activity,
   Palette,
-  ChevronRight
+  ChevronRight,
+  LogOut,
 } from 'lucide-react';
 
+interface AuthUser {
+  id?: number | string;
+  email: string;
+  name?: string | null;
+  role?: string;
+}
+
 export const App: React.FC = () => {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [signingOut, setSigningOut] = useState(false);
+
   const [drafts, setDrafts] = useState<ProductionPackage[]>([]);
   const [activeTab, setActiveTab] = useState<'studios' | 'calendar' | 'vault' | 'magazine' | 'queue' | 'archive'>('studios');
   const [selectedBrandKey, setSelectedBrandKey] = useState<string | null>(null);
@@ -23,9 +36,42 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     let isMounted = true;
+
+    const checkSession = async () => {
+      try {
+        const res = await fetch('/api/auth/me', {
+          method: 'GET',
+          credentials: 'include',
+        });
+        const contentType = res.headers.get('content-type');
+        if (isMounted && res.ok && contentType && contentType.includes('application/json')) {
+          const data = (await res.json()) as { user?: AuthUser };
+          setUser(data.user ?? null);
+        } else if (isMounted) {
+          setUser(null);
+        }
+      } catch {
+        if (isMounted) setUser(null);
+      } finally {
+        if (isMounted) setCheckingSession(false);
+      }
+    };
+
+    checkSession();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    let isMounted = true;
+
     const loadDrafts = async () => {
       try {
-        const res = await fetch('/api/drafts');
+        const res = await fetch('/api/drafts', {
+          credentials: 'include',
+        });
         const contentType = res.headers.get('content-type');
 
         if (res.ok && contentType && contentType.includes('application/json')) {
@@ -42,8 +88,27 @@ export const App: React.FC = () => {
     };
 
     loadDrafts();
-    return () => { isMounted = false; };
-  }, []);
+    return () => {
+      isMounted = false;
+    };
+  }, [user]);
+
+  const handleSignOut = async () => {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } finally {
+      setUser(null);
+      setDrafts([]);
+      setLatestDraft(null);
+      setSelectedBrandKey(null);
+      setSigningOut(false);
+    }
+  };
 
   const handleDraftCreated = (rawDraft: ProductionPackage) => {
     if (!rawDraft) return;
@@ -52,20 +117,38 @@ export const App: React.FC = () => {
     setDrafts((prev) => [cleanDraft, ...(Array.isArray(prev) ? prev : [])]);
   };
 
+  if (checkingSession) {
+    return (
+      <div className="min-h-screen bg-[#0b0b0c] text-neutral-400 font-mono text-xs flex items-center justify-center">
+        Verifying Yazooblu // Studio OS session...
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <SignInPage
+        onSuccess={(authenticatedUser: AuthUser) => {
+          setUser(authenticatedUser);
+        }}
+      />
+    );
+  }
+
   const brandEntries = Object.entries(BRANDS);
 
   return (
     <div className="min-h-screen bg-[#0b0b0c] text-neutral-100 font-sans antialiased selection:bg-amber-500/30">
-      
       {/* Studio OS Top Header */}
       <header className="border-b border-neutral-800/80 bg-[#121214] px-6 py-4 sticky top-0 z-50 shadow-2xl">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
-          
           {/* Brand Identity */}
           <div className="flex items-center gap-3.5">
-            <div className="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center font-black text-black text-base shadow-lg shadow-amber-500/20 tracking-tighter">
-              YB
-            </div>
+            <img
+              src="/logo.png"
+              alt="YazooBlu Studio OS"
+              className="w-10 h-10 rounded-xl bg-amber-500 p-0.5 object-contain shadow-lg shadow-amber-500/20"
+            />
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-base font-extrabold text-white tracking-tight font-mono">
@@ -78,8 +161,8 @@ export const App: React.FC = () => {
             </div>
           </div>
 
-          {/* Real-time System Status Diagnostics */}
-          <div className="flex items-center gap-3 text-xs font-mono">
+          {/* Real-time System Status Diagnostics + Session Controls */}
+          <div className="flex flex-wrap items-center gap-3 text-xs font-mono">
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-neutral-900/90 border border-neutral-800 text-neutral-300">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               <span>API Diagnostics:</span>
@@ -95,6 +178,20 @@ export const App: React.FC = () => {
             <div className="hidden sm:flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-neutral-900/90 border border-neutral-800 text-neutral-400">
               Pipeline: <span className="text-emerald-400 font-bold">{drafts.length || 5}</span>
             </div>
+
+            <span className="hidden lg:inline text-neutral-400 truncate max-w-[180px]">
+              {user.name || user.email}
+            </span>
+
+            <button
+              type="button"
+              onClick={handleSignOut}
+              disabled={signingOut}
+              className="px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-200 border border-neutral-700/80 transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <LogOut className="w-3.5 h-3.5 text-amber-400" />
+              <span>{signingOut ? 'Signing out...' : 'Sign Out'}</span>
+            </button>
           </div>
         </div>
 
@@ -183,7 +280,6 @@ export const App: React.FC = () => {
       {/* Main Studio Viewport */}
       <main className="max-w-7xl mx-auto px-6 py-8">
         <ErrorBoundary fallbackTitle="Studio Workspace Recovered">
-          
           {/* TAB 1: 7 SOVEREIGN BRAND PORTFOLIOS GRID */}
           {activeTab === 'studios' && !selectedBrandKey && (
             <div className="space-y-6">
@@ -229,7 +325,7 @@ export const App: React.FC = () => {
                               </div>
                             )}
                           </div>
-                          
+
                           {key === 'outkast' ? (
                             <span className="text-[10px] font-mono text-amber-400 font-bold bg-amber-500/10 px-2 py-1 rounded-md border border-amber-500/30">
                               ACTIVE STUDIO
@@ -372,7 +468,6 @@ export const App: React.FC = () => {
               <p className="text-xs text-neutral-400 font-mono">Published and approved summit asset packages.</p>
             </div>
           )}
-
         </ErrorBoundary>
       </main>
     </div>
