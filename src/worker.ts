@@ -19,6 +19,13 @@ export interface Env {
   PIXABAY_API_KEY?: string;
 }
 
+interface SessionUser {
+  id: number | string;
+  email: string;
+  name: string | null;
+  role: string;
+}
+
 const SESSION_COOKIE = 'yazooblu_session';
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 
@@ -184,6 +191,27 @@ function parseCookies(cookieHeader: string | null): Record<string, string> {
 
 function makeSessionCookie(token: string, maxAge: number): string {
   return `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
+}
+
+async function getAuthenticatedUser(
+  sql: postgres.Sql,
+  request: Request
+): Promise<SessionUser | null> {
+  const cookies = parseCookies(request.headers.get('Cookie'));
+  const sessionId = cookies[SESSION_COOKIE];
+  if (!sessionId) return null;
+
+  const rows = await sql<SessionUser[]>`
+    SELECT u.id, u.email, u.name, u.role
+    FROM sessions s
+    JOIN users u ON u.id = s.user_id
+    WHERE s.id = ${sessionId}
+      AND s.expires_at > NOW()
+      AND u.is_active = TRUE
+    LIMIT 1
+  `;
+
+  return rows[0] ?? null;
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -523,6 +551,17 @@ export default {
         return json({ ok: true }, 200, {
           'Set-Cookie': makeSessionCookie('', 0),
         });
+      }
+
+      // ==================== SESSION GUARD FOR PRIVATE /API/* ROUTES ====================
+      const isPublicApiRoute =
+        pathname === '/api/health' || pathname.startsWith('/api/auth/');
+
+      if (!isPublicApiRoute) {
+        const authUser = await getAuthenticatedUser(sql, request);
+        if (!authUser) {
+          return json({ error: 'Unauthorized' }, 401);
+        }
       }
 
       // ==================== DRAFTS CRUD ROUTES ====================
